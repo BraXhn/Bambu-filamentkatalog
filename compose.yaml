@@ -1,0 +1,15 @@
+services:
+  katalog:
+    build: .
+    image: bambu-filamentkatalog:latest
+    ports:
+      - "8000:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 32m
+    cpus: 0.5
+    restart: unless-stopped
