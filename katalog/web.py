@@ -12,7 +12,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, db, pages, scheduler, security
+from . import bambu, config, db, pages, scheduler, security
 
 COOKIE = 'katalog_sid'
 PRE_COOKIE = 'katalog_pre'
@@ -35,6 +35,33 @@ def _verify(pw, stored):
 def _dummy(pw):
     with _hash_slots:
         security.dummy_verify(pw)
+
+
+bambu_attempts = security.RateLimiter(6, 15 * 60)
+_names_cache = {}
+
+
+def _catalog_names():
+    """{katalognyckel: färgnamn} för kontosidan (cachas per filversion)."""
+    try:
+        mtime = config.CATALOG_PATH.stat().st_mtime
+        if _names_cache.get('mtime') != mtime:
+            data = json.loads(config.CATALOG_PATH.read_text(encoding='utf-8'))
+            _names_cache.update(mtime=mtime, names={d['type'] + '|' + (d['code'] or d['name']): d['name'] for d in data})
+        return _names_cache['names']
+    except (OSError, ValueError):
+        return {}
+
+
+def _bambu_summary(user_id):
+    link = db.get_bambu(user_id)
+    if not link:
+        return None
+    try:
+        matched = json.loads(link['matched'] or '{}')
+    except ValueError:
+        matched = {}
+    return {'status': link['status'], 'lastSync': link['last_sync'], 'items': matched}
 
 
 def safe_next(url):
@@ -221,6 +248,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.post_logout_others()
             if u['must_change_pw']:
                 return self.redirect('/konto')
+            if path.startswith('/konto/bambu/'):
+                return self.bambu_post(path)
             if path.startswith('/admin'):
                 return self.admin_post(path)
             self.not_found()
@@ -368,10 +397,15 @@ class Handler(BaseHTTPRequestHandler):
     def _sessions_count(self, uid):
         return db.conn().execute('SELECT COUNT(*) FROM sessions WHERE user_id=?', (uid,)).fetchone()[0]
 
-    def get_account(self, kind='', msg='', code=200):
+    def get_account(self, kind='', msg='', code=200, bkind='', bmsg=''):
         u = self.user()
-        self.send(code, pages.account(u, self.session()['csrf'], self._sessions_count(u['id']), kind, msg,
-                                      must_change=u['must_change_pw']))
+        csrf = self.session()['csrf']
+        section = ''
+        if not u['must_change_pw']:
+            section = pages.bambu_section(csrf, db.get_bambu(u['id']), db.get_bambu_pending(u['id']),
+                                          _catalog_names(), bkind, bmsg)
+        self.send(code, pages.account(u, csrf, self._sessions_count(u['id']), kind, msg,
+                                      must_change=u['must_change_pw'], bambu=section))
 
     def post_password(self):
         f = self.form()
@@ -496,6 +530,66 @@ class Handler(BaseHTTPRequestHandler):
             return self._admin_page(secret=(f'{username} är tillagd. Lösenord:', pw))
         return self._admin_page('ok', f'{username} är tillagd. Användaren byter lösenord vid första inloggningen.')
 
+    # ---------- Bambu Lab-koppling ----------
+    def bambu_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        action = path.rsplit('/', 1)[-1]
+        if action not in ('koppla', 'kod', 'ny-kod', 'synka', 'koppla-fran', 'avbryt'):
+            return self.not_found()
+        if action == 'koppla-fran':
+            db.delete_bambu(uid)
+            print(f'[bambu] användare {uid} kopplade från sitt Bambu-konto', flush=True)
+            return self.get_account(bkind='ok', bmsg='Bambu Lab-kontot är frånkopplat. Synkade markeringar är borttagna.')
+        if action == 'avbryt':
+            db.clear_bambu_pending(uid)
+            return self.redirect('/konto#bambu')
+        # Skydda både Bambu-kontot och servern: högst 6 inloggnings-/synkförsök per kvart och användare.
+        if bambu_attempts.blocked(uid):
+            return self.get_account(bkind='err', bmsg='För många försök. Vänta en kvart och försök igen.', code=429)
+        bambu_attempts.hit(uid)
+        try:
+            if action == 'synka':
+                ok, msg = bambu.sync_user(uid)
+                return self.get_account(bkind='ok' if ok else 'err', bmsg=msg)
+            if action == 'koppla':
+                account = (f.get('account') or '').strip()[:120]
+                region = f.get('region') if f.get('region') in bambu.API else 'global'
+                if not account or not f.get('password'):
+                    return self.get_account(bkind='err', bmsg='Fyll i e-post och lösenord.', code=400)
+                try:
+                    token = bambu.login(account, f['password'], region)
+                except bambu.NeedCode:
+                    db.set_bambu_pending(uid, account, region, 'code')
+                    return self.get_account()
+                except bambu.NeedTfa as t:
+                    db.set_bambu_pending(uid, account, region, 'tfa', t.tfa_key)
+                    return self.get_account()
+                return self._bambu_linked(uid, account, region, token)
+            pending = db.get_bambu_pending(uid)
+            if not pending:
+                return self.get_account(bkind='err', bmsg='Inloggningen hos Bambu Lab hann gå ut. Börja om.', code=400)
+            if action == 'ny-kod':
+                bambu.request_code(pending['account'], pending['region'])
+                db.set_bambu_pending(uid, pending['account'], pending['region'], 'code')
+                return self.get_account(bkind='ok', bmsg='En ny kod har skickats.')
+            code = re.sub(r'\s', '', f.get('code') or '')[:12]
+            if pending['step'] == 'tfa':
+                token = bambu.login_with_tfa(pending['tfa_key'], code, pending['region'])
+            else:
+                token = bambu.login_with_code(pending['account'], code, pending['region'])
+            return self._bambu_linked(uid, pending['account'], pending['region'], token)
+        except bambu.BambuError as ex:
+            return self.get_account(bkind='err', bmsg=str(ex), code=400)
+
+    def _bambu_linked(self, uid, account, region, token):
+        db.save_bambu_token(uid, account, region, token, bambu.token_expiry(token))
+        print(f'[bambu] användare {uid} kopplade Bambu-kontot', flush=True)
+        ok, msg = bambu.sync_user(uid)
+        return self.get_account(bkind='ok' if ok else 'err', bmsg=('Kontot är kopplat. ' if ok else 'Kontot är kopplat, men ') + msg)
+
     # ---------- API ----------
     def api_me(self):
         u = self.user()
@@ -508,7 +602,7 @@ class Handler(BaseHTTPRequestHandler):
         if not u:
             return self.json(401, {'error': 'inte inloggad'})
         items = db.get_owned(u['id'])
-        self.json(200, {'items': items or [], 'saved': items is not None})
+        self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': _bambu_summary(u['id'])})
 
     def api_owned_put(self):
         u = self.user()

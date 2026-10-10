@@ -10,6 +10,7 @@ services:
     environment:
       TZ: Europe/Stockholm
       PRICE_UPDATE_TIME: "01:00"    # tom sträng stänger av den schemalagda uppdateringen
+      BAMBU_SYNC_HOURS: "6"         # synk från kopplade Bambu Lab-konton
       # Valfritt: skapa första administratören automatiskt (ta bort lösenordet efter första start).
       # ADMIN_USERNAME: anton
       # ADMIN_PASSWORD: byt-till-en-lang-fras

@@ -115,6 +115,7 @@ s, h, b = req(op, '/admin/anvandare', {'csrf': t, 'username': 'ci-user', 'passwo
 check(s == 200 and b'class="secret"' in b, 'admin skapar användare via webben')
 s, h, b = req(op, '/konto')
 check(s == 200 and b'Byt l' in b, 'kontosidan visas')
+check(b'Koppla Bambu Lab-konto' in b, 'Bambu Lab-koppling finns på kontosidan')
 
 # HTTPS bakom omvänd proxy
 p2, _ = client()
