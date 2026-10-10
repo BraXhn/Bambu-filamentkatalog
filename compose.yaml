@@ -13,8 +13,10 @@ services:
       # Valfritt: skapa första administratören automatiskt (ta bort lösenordet efter första start).
       # ADMIN_USERNAME: anton
       # ADMIN_PASSWORD: byt-till-en-lang-fras
-      # Bakom en omvänd proxy på annan adress än privata nät:
-      # TRUSTED_PROXIES: 203.0.113.10/32
+      # Bakom en omvänd proxy (Nginx Proxy Manager, Traefik, SWAG, Cloudflare Tunnel …):
+      # ange proxyns adress/nät så att riktiga klient-IP och https känns igen.
+      # TRUSTED_PROXIES: 172.18.0.0/16
+      # COOKIE_SECURE: "true"       # rekommenderas när sajten bara nås via https
     read_only: true
     tmpfs:
       - /tmp

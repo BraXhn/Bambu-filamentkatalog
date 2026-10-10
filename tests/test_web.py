@@ -103,14 +103,17 @@ class WebFlow(unittest.TestCase):
         # brute force
         x,_=client(); s,h,b=req(x,'/login'); t4=csrf(b)
         codes=[req(x,'/login',{'csrf':t4,'username':'lisa','password':'fel-%d'%i})[0] for i in range(9)]
-        ok(codes[:8]==[401]*8 and codes[8]==429,'konto låses efter 8 fel: %s'%codes)
-        s,h,b=req(x,'/login',{'csrf':t4,'username':'lisa','password':'Gron-katt-hoppar-77'}); ok(s==429,'rätt lösenord nekas medan låst')
+        ok(codes==[401]*9,'samma svar oavsett låsning: %s'%codes)
+        s,h,b=req(x,'/login',{'csrf':t4,'username':'lisa','password':'Gron-katt-hoppar-77'}); ok(s==401,'rätt lösenord nekas medan låst')
+        ok(sqlite3.connect(D+'/katalog.db').execute("select locked_until>0 from users where username='lisa'").fetchone()[0]==1,'kontot är låst i databasen')
         s,h,b=req(x,'/login',{'csrf':t4,'username':'finnsinte','password':'x'}); ok(s==401 and 'Fel användarnamn eller lösenord' in b,'okänt konto ger samma fel')
         # logout
         s,h,b=req(a,'/admin'); t=csrf(b)
         uid=sqlite3.connect(D+'/katalog.db').execute("select id from users where username='lisa'").fetchone()[0]
         s,h,b=req(a,f'/admin/anvandare/{uid}/las-upp',{'csrf':t}); ok('upplåst' in b,'admin låser upp')
         s,h,b=req(a,f'/admin/anvandare/{uid}/roll',{'csrf':t}); ok('administratör' in b,'admin gör lisa till admin')
+        s,h,b=req(a,'/logout',{'csrf':'fel'},headers={'Origin':'https://evil.example'}); ok(s==303 and 'Set-Cookie' not in h,'utloggning från annan sajt ignoreras')
+        s,h,b=req(a,'/auth/check'); ok(s==204,'fortfarande inloggad efter falsk utloggning')
         s,h,b=req(a,'/logout',{'csrf':t}); ok(s==303,'logga ut')
         s,h,b=req(a,'/auth/check'); ok(s==401,'session ogiltig efter utloggning')
         db=sqlite3.connect(D+'/katalog.db'); ok(all(len(r[0])==64 for r in db.execute('select id from sessions')),'endast token-hash lagras')

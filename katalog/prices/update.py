@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .. import config
 from . import jake, prima, tradera
-from .common import Http, Matcher
+from .common import Http, Matcher, allowed_url
 
 SOURCES = {
     '3djake': ('3DJake', jake, lambda o: o['shop'] == jake.SHOP),
@@ -83,6 +83,8 @@ def run_update(log=print, sources=None):
             offers += prev
             summary[sid] = dict(label=label, status='failed', offers=len(prev), previous=len(prev),
                                 error=str(e)[:300], seconds=round(time.time() - t0))
+    # Bara https-länkar till kända butiker publiceras (skydd mot manipulerade källsidor).
+    offers = [o for o in offers if allowed_url(o.get('url'))]
     unique = {(o['key'], o['url'], o['pack']): o for o in offers}
     offers = list(unique.values())
     write_json_atomic(config.WWW_DIR / 'offers.json', {'checkedAt': now, 'offers': offers})

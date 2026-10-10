@@ -14,6 +14,7 @@ CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-
 
 def render():
     real_ip = '\n'.join(f'    set_real_ip_from {n};' for n in config.TRUSTED_PROXIES)
+    geo_trusted = '\n'.join(f'        {n} 1;' for n in config.TRUSTED_PROXIES)
     app = f'http://127.0.0.1:{config.APP_PORT}'
     return f"""# Genereras vid start av katalog/nginx.py – ändra inte här.
 worker_processes auto;
@@ -57,8 +58,12 @@ http {{
     limit_req_status 429;
     limit_conn_zone $binary_remote_addr zone=perip:10m;
 
-    # HSTS och korrekt schema när en omvänd proxy terminerar TLS.
-    map $http_x_forwarded_proto $fwd_proto {{ https https; default $scheme; }}
+    # X-Forwarded-Proto godtas bara från betrodda proxyer (TRUSTED_PROXIES).
+    geo $realip_remote_addr $from_trusted_proxy {{
+        default 0;
+{geo_trusted}
+    }}
+    map "$from_trusted_proxy:$http_x_forwarded_proto" $fwd_proto {{ "1:https" https; default $scheme; }}
     map $fwd_proto $hsts {{ https "max-age=31536000"; default ""; }}
     map $uri $cache_control {{
         ~^/(login|logout|setup|konto|admin|api)  "no-store";
@@ -74,6 +79,7 @@ http {{
     server {{
         listen {config.LISTEN_PORT} default_server;
         server_name _;
+        absolute_redirect off;   # relativa Location-rubriker: fungerar bakom proxy och portmappning
         root {config.SEED_DIR};
         index index.html;
 
@@ -142,8 +148,8 @@ http {{
 
 
 PROXY_APP = f"""proxy_pass http://127.0.0.1:{config.APP_PORT};
-proxy_http_version 1.1;
-proxy_set_header Connection "";
+proxy_http_version 1.0;
+proxy_set_header Connection "close";
 proxy_set_header Host $http_host;
 proxy_set_header X-Real-IP $remote_addr;
 proxy_set_header X-Forwarded-Proto $fwd_proto;

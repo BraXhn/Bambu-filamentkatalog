@@ -115,8 +115,16 @@ class RateLimiter:
             now = time.time()
             self._prune(key, now)
             self._hits.setdefault(key, []).append(now)
-            if len(self._hits) > 50000:  # skydd mot minnesöverbelastning
-                self._hits.clear()
+            if len(self._hits) > 50000:  # skydd mot minnesöverbelastning: släng äldsta nycklarna
+                for k in sorted(self._hits, key=lambda k: self._hits[k][-1])[:10000]:
+                    del self._hits[k]
+
+    def forgive(self, key):
+        """Tar bort den senaste träffen (för lyckade försök)."""
+        with self._lock:
+            hits = self._hits.get(key)
+            if hits:
+                hits.pop()
 
     def reset(self, key):
         with self._lock:

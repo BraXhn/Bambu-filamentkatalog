@@ -37,7 +37,7 @@ jobs:
         run: |
           docker run -d --name katalog -p 8000:8080 --read-only --tmpfs /tmp --cap-drop ALL \
             --security-opt no-new-privileges -e ADMIN_USERNAME=ci-admin -e ADMIN_PASSWORD="$CI_ADMIN_PASSWORD" \
-            -e PRICE_UPDATE_TIME= katalog:test
+            -e PRICE_UPDATE_TIME= -e TRUSTED_PROXIES=172.16.0.0/12 katalog:test
           for i in $(seq 1 30); do
             [ "$(docker inspect -f '{{.State.Health.Status}}' katalog)" = healthy ] && break; sleep 2
           done
