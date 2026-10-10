@@ -4,5 +4,7 @@
 !build_catalog.py
 !build_prices.py
 !prices.py
-!nginx.conf
+!katalog/
+!assets/
 **/__pycache__
+**/*.pyc

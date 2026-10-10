@@ -1,15 +1,29 @@
 services:
   katalog:
+    image: ghcr.io/braxhn/bambu-filamentkatalog:latest
     build: .
-    image: bambu-filamentkatalog:latest
+    container_name: katalog
     ports:
       - "8000:8080"
+    volumes:
+      - katalog-data:/data          # användare, sessioner och nattliga priser
+    environment:
+      TZ: Europe/Stockholm
+      PRICE_UPDATE_TIME: "01:00"    # tom sträng stänger av den schemalagda uppdateringen
+      # Valfritt: skapa första administratören automatiskt (ta bort lösenordet efter första start).
+      # ADMIN_USERNAME: anton
+      # ADMIN_PASSWORD: byt-till-en-lang-fras
+      # Bakom en omvänd proxy på annan adress än privata nät:
+      # TRUSTED_PROXIES: 203.0.113.10/32
     read_only: true
     tmpfs:
       - /tmp
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    mem_limit: 32m
-    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 100
     restart: unless-stopped
+
+volumes:
+  katalog-data:

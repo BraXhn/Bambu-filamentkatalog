@@ -1,0 +1,53 @@
+name: Kontrollera prishämtning
+
+# Kör prishämtaren mot de riktiga butikerna, så att trasiga källor upptäcks.
+# Påverkar inte din egen container; den uppdaterar sina priser själv varje natt.
+on:
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: 'Källor (kommaseparerat)'
+        default: '3djake,3dprima,tradera'
+  schedule:
+    - cron: '17 6 * * 1'   # måndagar
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Hämta priser
+        env:
+          KATALOG_DATA_DIR: ${{ runner.temp }}/data
+          KATALOG_SEED_DIR: ${{ github.workspace }}/dist
+          SOURCES: ${{ inputs.sources || '3djake,3dprima,tradera' }}
+        run: |
+          mkdir -p "$KATALOG_DATA_DIR/www"
+          cp dist/offers.json "$KATALOG_DATA_DIR/www/"
+          python -m katalog update --sources "$SOURCES" | tee update.log
+          python - <<'EOF'
+          import json, os, sqlite3
+          db = sqlite3.connect(os.environ['KATALOG_DATA_DIR'] + '/katalog.db')
+          status, summary = db.execute('SELECT status, summary FROM runs ORDER BY id DESC LIMIT 1').fetchone()
+          s = json.loads(summary)
+          for k, v in s.items():
+              if k.startswith('_'):
+                  print(f"::notice title=Totalt::{v}")
+              else:
+                  level = 'notice' if v['status'] in ('ok', 'skipped') else 'error'
+                  print(f"::{level} title={v['label']}::{v['status']} – {v['offers']} erbjudanden (tidigare {v['previous']}) {v.get('error', '')}")
+          raise SystemExit(0 if status == 'ok' else 1)
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: priser
+          path: |
+            ${{ runner.temp }}/data/www/offers.json
+            update.log
