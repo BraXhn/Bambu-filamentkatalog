@@ -15,12 +15,41 @@ fetch('data.json').then(r=>{if(!r.ok)throw Error();return r.json()}).then(d=>{da
 $('#ownedFilter').onclick=()=>{onlyOwned=!onlyOwned;render()};
 $('#results').addEventListener('change',e=>{
  const input=e.target,key=input.dataset.owned;if(key===undefined)return;
- const before=new Set(owned);if(input.checked)owned.add(key);else owned.delete(key);
- try{localStorage.setItem(storageKey,JSON.stringify([...owned]));$('#saveStatus').textContent='Sparat i den här webbläsaren.';}
- catch{owned=before;$('#saveStatus').textContent='Kunde inte spara markeringen. Tillåt webbplatsdata i webbläsaren och försök igen.';}
+ if(input.checked)owned.add(key);else owned.delete(key);
+ saveOwned();
  render();const next=Array.from(document.querySelectorAll('[data-owned]')).find(el=>el.dataset.owned===key);if(next)next.focus({preventScroll:true});
 });
 window.addEventListener('storage',e=>{if(e.key!==storageKey&&e.key!==null)return;try{const saved=JSON.parse(e.newValue||'[]');if(Array.isArray(saved)){owned=new Set(saved.filter(x=>typeof x==='string'));render()}}catch{}});
 
 // Bildfallback utan inline-händelsehanterare (tillåter strikt Content-Security-Policy).
 document.addEventListener('error',e=>{const i=e.target;if(i instanceof HTMLImageElement&&i.hasAttribute('data-fallback')){i.style.display='none';if(i.nextElementSibling)i.nextElementSibling.hidden=false}},true);
+
+// --- Inloggad användare: meny och markeringar sparade på kontot ---
+let session=null,saveTimer=null,saving=Promise.resolve();
+function localSave(){try{localStorage.setItem(storageKey,JSON.stringify([...owned]))}catch{}}
+function saveOwned(){
+ localSave();
+ if(!session){$('#saveStatus').textContent='Sparat i den här webbläsaren.';return}
+ $('#saveStatus').textContent='Sparar…';clearTimeout(saveTimer);
+ saveTimer=setTimeout(()=>{saving=saving.then(()=>fetch('api/owned',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({items:[...owned]})}).then(r=>{if(r.status===401){location.href='login?next='+encodeURIComponent(location.pathname);return}if(!r.ok)throw Error();$('#saveStatus').textContent='Sparat på ditt konto ('+session.username+'). Syns på alla dina enheter.'}).catch(()=>{$('#saveStatus').textContent='Kunde inte spara på kontot just nu. Markeringen finns kvar i den här webbläsaren; försök igen senare.'}))},400);
+}
+function userMenu(){
+ const nav=document.createElement('nav');nav.className='usermenu';nav.setAttribute('aria-label','Konto');
+ const who=document.createElement('span');who.className='who';who.append('Inloggad som ');const b=document.createElement('b');b.textContent=session.username;who.append(b);nav.append(who);
+ const link=(href,text)=>{const a=document.createElement('a');a.href=href;a.textContent=text;nav.append(a)};
+ link('konto','Mitt konto');if(session.isAdmin)link('admin','Administration');
+ const f=document.createElement('form');f.method='post';f.action='logout';const c=document.createElement('input');c.type='hidden';c.name='csrf';c.value=session.csrf;const btn=document.createElement('button');btn.type='submit';btn.textContent='Logga ut';f.append(c,btn);nav.append(f);
+ document.querySelector('header').append(nav);
+}
+fetch('api/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(me=>{
+ if(!me)return;session=me;userMenu();
+ return fetch('api/owned',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
+  if(!d)return;
+  const server=new Set(d.items.filter(x=>typeof x==='string'));
+  // Första gången: flytta markeringar från webbläsaren till kontot.
+  const merged=d.saved?server:new Set([...server,...owned]);
+  owned=merged;$('#saveStatus').textContent='Dina markeringar sparas på ditt konto och syns på alla dina enheter.';
+  if(!d.saved&&merged.size)saveOwned();else localSave();
+  if(data.length)render();
+ });
+}).catch(()=>{});
