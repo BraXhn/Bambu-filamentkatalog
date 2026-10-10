@@ -151,6 +151,28 @@ def delete_user(user_id):
         c.execute('DELETE FROM users WHERE id=?', (user_id,))
 
 
+def delete_user_keep_admin(user_id):
+    """Tar bort användaren om det fortfarande finns minst en annan administratör. Atomiskt."""
+    with tx() as c:
+        return c.execute('DELETE FROM users WHERE id=? AND (is_admin=0 OR '
+                         '(SELECT COUNT(*) FROM users WHERE is_admin=1) > 1)', (user_id,)).rowcount == 1
+
+
+def toggle_admin_keep_one(user_id):
+    """Växlar admin-roll; nekar om det skulle lämna noll administratörer. Atomiskt."""
+    with tx() as c:
+        return c.execute('UPDATE users SET is_admin = 1 - is_admin WHERE id=? AND (is_admin=0 OR '
+                         '(SELECT COUNT(*) FROM users WHERE is_admin=1) > 1)', (user_id,)).rowcount == 1
+
+
+def register_failure(user_id, max_fails, lock_seconds, now):
+    """Atomisk ökning av misslyckade försök; låser kontot vid gränsen."""
+    with tx() as c:
+        c.execute('UPDATE users SET failed_logins = failed_logins + 1 WHERE id=?', (user_id,))
+        c.execute('UPDATE users SET locked_until=?, failed_logins=0 WHERE id=? AND failed_logins>=?',
+                  (now + lock_seconds, user_id, max_fails))
+
+
 # --- sessions ---
 def create_session(sid_hash, user_id, csrf, ip, user_agent):
     now = time.time()
@@ -224,3 +246,10 @@ def recent_runs(limit=10):
 
 def running_run():
     return conn().execute("SELECT * FROM runs WHERE status='running' ORDER BY id DESC LIMIT 1").fetchone()
+
+
+def complete_login(user_id, now):
+    """Registrerar lyckad inloggning, men bara om kontot inte hann spärras under kontrollen."""
+    with tx() as c:
+        return c.execute('UPDATE users SET failed_logins=0, last_login=? WHERE id=? AND locked_until<=?',
+                         (now, user_id, now)).rowcount == 1

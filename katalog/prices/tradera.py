@@ -6,6 +6,7 @@ import urllib.parse
 
 from .common import FetchError, json_ld
 
+ITEM_URL = re.compile(r'^https://www\.tradera\.com/item/\d+/\d+/[A-Za-z0-9%_-]*$')
 _PUSH = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 
 
@@ -90,6 +91,8 @@ def run(http, matcher, state, log, now):
                 break
             for it in items:
                 if not it.get('isActive') or it.get('sellerCountryCodeIso2') != 'SE':
+                    continue
+                if not ITEM_URL.match(str(it.get('itemUrl', ''))):
                     continue
                 d = matcher.match(it.get('shortDescription', ''))
                 if d:

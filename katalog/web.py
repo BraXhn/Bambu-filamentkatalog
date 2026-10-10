@@ -49,7 +49,9 @@ def safe_next(url):
 class Handler(BaseHTTPRequestHandler):
     server_version = 'katalog'
     sys_version = ''
-    protocol_version = 'HTTP/1.1'
+    # HTTP/1.0 + Connection: close: varje anslutning bär exakt en förfrågan, så ett oläst
+    # meddelandekropp kan aldrig tolkas som en ny (smugglad) förfrågan.
+    protocol_version = 'HTTP/1.0'
 
     # ---------- hjälpare ----------
     def log_message(self, fmt, *args):  # nginx loggar redan förfrågningarna
@@ -89,7 +91,9 @@ class Handler(BaseHTTPRequestHandler):
     def send(self, code, body=b'', ctype='text/html; charset=utf-8', headers=None):
         if isinstance(body, str):
             body = body.encode('utf-8')
+        self.close_connection = True
         self.send_response(code)
+        self.send_header('Connection', 'close')
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
         for k, v in (headers or []):
@@ -284,26 +288,27 @@ class Handler(BaseHTTPRequestHandler):
         if not self.check_pre_csrf(f):
             return fail('Sidan hade gått ut. Försök igen.', 403)
         ip = self.client_ip
+        generic = ('Fel användarnamn eller lösenord. Efter flera misslyckade försök spärras kontot '
+                   'i 15 minuter; en administratör kan låsa upp det.')
         if security.ip_failures.blocked(ip):
-            return fail('För många misslyckade försök. Vänta en stund och försök igen.', 429)
+            return fail('För många misslyckade försök från din adress. Vänta en stund och försök igen.', 429)
+        # Räkna försöket innan den långsamma kontrollen, så samtidiga försök inte slinker förbi.
+        security.ip_failures.hit(ip)
         user = db.get_user_by_name(username) if username else None
         now = time.time()
         if user and user['locked_until'] > now:
             _dummy(password)
-            security.ip_failures.hit(ip)
-            mins = int((user['locked_until'] - now) // 60) + 1
-            return fail(f'Kontot är tillfälligt låst efter för många felaktiga försök. Försök igen om {mins} min '
-                        f'eller be en administratör låsa upp det.', 429)
+            print(f'[inloggning] försök mot spärrat konto "{username}" från {ip}', flush=True)
+            return fail(generic, 401)
         ok = _verify(password, user['pw_hash']) if user else (_dummy(password) or False)
         if not ok:
-            security.ip_failures.hit(ip)
             if user:
-                fails = user['failed_logins'] + 1
-                lock = now + security.ACCOUNT_LOCK_SECONDS if fails >= security.ACCOUNT_MAX_FAILS else 0
-                db.update_user(user['id'], failed_logins=0 if lock else fails, locked_until=lock)
+                db.register_failure(user['id'], security.ACCOUNT_MAX_FAILS, security.ACCOUNT_LOCK_SECONDS, now)
             print(f'[inloggning] misslyckad för "{username}" från {ip}', flush=True)
-            return fail('Fel användarnamn eller lösenord.', 401)
-        db.update_user(user['id'], failed_logins=0, locked_until=0, last_login=now)
+            return fail(generic, 401)
+        if not db.complete_login(user['id'], time.time()):
+            return fail(generic, 401)  # kontot spärrades medan lösenordet kontrollerades
+        security.ip_failures.forgive(ip)
         print(f'[inloggning] {user["username"]} loggade in från {ip}', flush=True)
         cookie = self.start_session(user)
         self.redirect('/konto' if user['must_change_pw'] else nxt,
@@ -312,7 +317,9 @@ class Handler(BaseHTTPRequestHandler):
     def post_logout(self):
         f = self.form()
         s = self.session()
-        if s and self.check_csrf(f):
+        if s and not self.check_csrf(f):
+            return self.redirect('/')  # utloggning från annan sajt ignoreras
+        if s:
             db.delete_session(s['id'])
         self.redirect('/login?ut=1', headers=[('Set-Cookie', self.cookie_header(COOKIE, '', 0))])
 
@@ -374,8 +381,8 @@ class Handler(BaseHTTPRequestHandler):
         row = db.get_user(u['id'])
         if security.ip_failures.blocked(self.client_ip):
             return self.get_account('err', 'För många försök. Vänta en stund.', 429)
+        security.ip_failures.hit(self.client_ip)
         if not _verify(f.get('current', ''), row['pw_hash']):
-            security.ip_failures.hit(self.client_ip)
             return self.get_account('err', 'Nuvarande lösenord stämmer inte.', 400)
         new = f.get('new', '')
         err = security.validate_password(new, u['username'])
@@ -454,9 +461,8 @@ class Handler(BaseHTTPRequestHandler):
             print(f'[admin] {u["username"]} återställde lösenordet för "{name}"', flush=True)
             return self._admin_page(secret=(f'Nytt lösenord för {name}', pw))
         if action == 'roll':
-            if target['is_admin'] and db.admin_count() <= 1:
+            if not db.toggle_admin_keep_one(target['id']):
                 return self._admin_page('err', 'Det måste finnas minst en administratör.', code=400)
-            db.update_user(target['id'], is_admin=0 if target['is_admin'] else 1)
             print(f'[admin] {u["username"]} ändrade roll för "{name}"', flush=True)
             return self._admin_page('ok', f'{name} är nu {"vanlig användare" if target["is_admin"] else "administratör"}.')
         if action == 'las-upp':
@@ -466,9 +472,8 @@ class Handler(BaseHTTPRequestHandler):
             db.delete_user_sessions(target['id'])
             return self._admin_page('ok', f'{name} är utloggad från alla enheter.')
         if action == 'ta-bort':
-            if target['is_admin'] and db.admin_count() <= 1:
+            if not db.delete_user_keep_admin(target['id']):
                 return self._admin_page('err', 'Det måste finnas minst en administratör.', code=400)
-            db.delete_user(target['id'])
             print(f'[admin] {u["username"]} tog bort "{name}"', flush=True)
             return self._admin_page('ok', f'{name} är borttagen.')
 

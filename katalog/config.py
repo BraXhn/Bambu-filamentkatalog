@@ -48,8 +48,9 @@ ALLOW_PUBLIC_SETUP = _bool('ALLOW_SETUP_WITHOUT_CODE', False)
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', '').strip()
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
 
-# Omvända proxyer vars X-Forwarded-For litas på. Standard: privata nät och loopback.
-_DEFAULT_PROXIES = '127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7'
+# Omvända proxyer vars X-Forwarded-For/-Proto litas på. Standard: bara loopback.
+# Bakom t.ex. Nginx Proxy Manager/Traefik: ange proxyns adress eller nät, t.ex. 172.18.0.0/16.
+_DEFAULT_PROXIES = '127.0.0.1/32,::1/128'
 TRUSTED_PROXIES = []
 for part in os.environ.get('TRUSTED_PROXIES', _DEFAULT_PROXIES).split(','):
     part = part.strip()
