@@ -61,6 +61,9 @@ for part in os.environ.get('TRUSTED_PROXIES', _DEFAULT_PROXIES).split(','):
     except ValueError:
         print(f'[varning] Ogiltig TRUSTED_PROXIES-post ignoreras: {part}')
 
+# Bambu Lab-synk: hur ofta kopplade konton synkas automatiskt (timmar, 0 = bara manuellt)
+BAMBU_SYNC_HOURS = float(os.environ.get('BAMBU_SYNC_HOURS', '6') or 0)
+
 # Prishämtning
 PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera').split(',') if s.strip()]
 HTTP_DELAY = float(os.environ.get('PRICE_HTTP_DELAY', '1.2'))   # sekunder mellan anrop per sajt

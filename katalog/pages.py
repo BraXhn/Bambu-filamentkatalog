@@ -1,6 +1,7 @@
 """HTML för inloggning, konto och administration. Inga skript: vanliga formulär fungerar med strikt CSP."""
 import datetime
 import json
+import re
 from html import escape as e
 from zoneinfo import ZoneInfo
 
@@ -91,7 +92,7 @@ autocapitalize="none" spellcheck="false" autocomplete="username" value="{e(v.get
 
 
 # ---------- konto ----------
-def account(user, csrf, sessions_count, msg_kind='', msg='', must_change=False):
+def account(user, csrf, sessions_count, msg_kind='', msg='', must_change=False, bambu=''):
     warn = message('warn', 'Du behöver byta lösenord innan du kan använda katalogen.') if must_change else ''
     body = f"""<h1>Mitt konto</h1><p class="lead">Hantera ditt lösenord och dina inloggningar.</p>
 {warn}{message(msg_kind, e(msg))}
@@ -106,7 +107,8 @@ def account(user, csrf, sessions_count, msg_kind='', msg='', must_change=False):
 <section class="card"><h2>Inloggningar</h2><p class="sub">Du är inloggad på {sessions_count} {'enhet' if sessions_count == 1 else 'enheter'}.
 Har du loggat in på en dator du inte litar på kan du logga ut överallt utom här.</p>
 <form method="post" action="/konto/logga-ut-andra"><input type="hidden" name="csrf" value="{e(csrf)}">
-<button class="btn ghost" type="submit"{' disabled' if sessions_count <= 1 else ''}>Logga ut andra enheter</button></form></section>"""
+<button class="btn ghost" type="submit"{' disabled' if sessions_count <= 1 else ''}>Logga ut andra enheter</button></form></section>
+{bambu}"""
     return layout('Mitt konto', body, user, csrf, 'konto')
 
 
@@ -219,3 +221,97 @@ def confirm_delete(user, csrf, target):
 def error_page(code, title, text, user=None, csrf=''):
     body = f'<h1>{e(title)}</h1><section class="card"><p>{e(text)}</p><p class="mt"><a class="btn ghost" href="/">Till katalogen</a></p></section>'
     return layout(title, body, user, csrf, narrow=True)
+
+
+# ---------- Bambu Lab-koppling (på Mitt konto) ----------
+def bambu_section(csrf, link, pending, catalog_names, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    intro = ('<p class="sub">Hämtar spolarna i ditt Bambu Lab-kontos filamentbibliotek (det du ser under '
+             '<i>Filament</i> i Bambu Handy och Bambu Studio) och markerar dem som ”Jag har” i katalogen, '
+             'tillsammans med hur mycket filament som finns kvar. Synken går bara åt ett håll: ingenting '
+             'ändras i ditt Bambu-konto.</p>')
+    note = ('<p class="muted" style="font-size:12px;margin:14px 0 0">Bambu Lab har inget officiellt API för biblioteket. '
+            'Synken använder samma anrop som Bambu Studio och kan sluta fungera om Bambu ändrar något. '
+            'Ditt Bambu-lösenord skickas bara till Bambu Lab och sparas aldrig här; inloggningen gäller i cirka 90 dagar.</p>')
+    out = message(msg_kind, e(msg))
+    if pending:
+        if pending['step'] == 'tfa':
+            label, help_txt, resend = 'Kod från din autentiseringsapp', 'Ange den sexsiffriga koden från appen du använder för tvåstegsverifiering hos Bambu Lab.', ''
+        else:
+            label = 'Kod från e-post'
+            help_txt = f'Bambu Lab har skickat en kod till <b>{e(pending["account"])}</b>. Den kommer från Bambu Lab, inte från den här sajten.'
+            resend = (f'<form method="post" action="/konto/bambu/ny-kod" style="display:inline">{h}'
+                      f'<button class="btn ghost" type="submit">Skicka ny kod</button></form>')
+        body = f"""<p class="sub">{help_txt}</p>
+<form method="post" action="/konto/bambu/kod" autocomplete="off">{h}
+<div class="field" style="max-width:260px"><label for="bc">{label}</label>
+<input id="bc" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required maxlength="12" autofocus></div>
+<div class="row"><button class="btn" type="submit">Bekräfta</button></div></form>
+<div class="row mt">{resend}<form method="post" action="/konto/bambu/avbryt" style="display:inline">{h}
+<button class="btn ghost" type="submit">Avbryt</button></form></div>"""
+        return f'<section class="card" id="bambu"><h2>Bambu Lab-konto</h2>{out}{body}{note}</section>'
+    if not link:
+        body = f"""{intro}
+<form method="post" action="/konto/bambu/koppla" autocomplete="off">{h}
+<div class="row"><div class="field"><label for="ba">E-post hos Bambu Lab</label>
+<input id="ba" name="account" type="text" inputmode="email" autocapitalize="none" spellcheck="false" required maxlength="120"></div>
+<div class="field"><label for="bp">Lösenord hos Bambu Lab</label>
+<input id="bp" name="password" type="password" autocomplete="off" required maxlength="256"></div>
+<div class="field" style="max-width:150px"><label for="br">Region</label><select id="br" name="region">
+<option value="global">Global</option><option value="china">Kina</option></select></div></div>
+<div class="row mt"><button class="btn" type="submit">Koppla Bambu Lab-konto</button></div></form>"""
+        return f'<section class="card" id="bambu"><h2>Bambu Lab-konto</h2>{out}{body}{note}</section>'
+
+    # Kopplat konto
+    try:
+        matched = json.loads(link['matched'] or '{}')
+        unmatched = json.loads(link['unmatched'] or '[]')
+    except ValueError:
+        matched, unmatched = {}, []
+    spools = sum(m.get('spools', 0) for m in matched.values()) + len(unmatched)
+    grams = sum(m.get('grams', 0) for m in matched.values()) + sum(u.get('grams') or 0 for u in unmatched)
+    status = link['status']
+    if status == 'expired':
+        banner = message('warn', 'Inloggningen hos Bambu Lab har gått ut (det sker ungefär var 90:e dag). '
+                                 'Koppla kontot igen nedan. Dina senast synkade spolar visas tills vidare.')
+    elif status == 'error':
+        banner = message('err', 'Senaste synken misslyckades: ' + e(link['error'] or 'okänt fel') +
+                         '. Senast kända spolar visas tills vidare.')
+    else:
+        banner = ''
+    days = int(((link['token_expires'] or 0) - datetime.datetime.now().timestamp()) // 86400)
+    expiry = (f'{fmt_time(link["token_expires"])[:10]} ({days} dagar kvar)' if link['token'] and link['token_expires']
+              else 'Utgången')
+    stats = f"""<div class="stats"><div class="stat"><span>Konto</span><strong>{e(link['account'])}</strong></div>
+<div class="stat"><span>Senast synkad</span><strong>{fmt_rel(link['last_sync'])}</strong></div>
+<div class="stat"><span>Spolar i biblioteket</span><strong>{spools} st · {f'{grams / 1000:.1f}'.replace('.', ',')} kg kvar</strong></div>
+<div class="stat"><span>Inloggning gäller till</span><strong>{e(expiry)}</strong></div></div>"""
+    rows = ''
+    for key, m in sorted(matched.items()):
+        typ, _, rest = key.partition('|')
+        name = catalog_names.get(key, rest)
+        left = f'{m["grams"]} g' + (f' av {m["total"]} g' if m.get('total') else '')
+        rows += (f'<tr><td>{e(typ)}</td><td>{e(name)}</td><td class="right">{m["spools"]}</td>'
+                 f'<td class="right">{e(left)}</td></tr>')
+    table = (f'<details class="mt"><summary>Visa {len(matched)} {"färg" if len(matched) == 1 else "färger"} som markerats som ”Jag har”</summary>'
+             f'<div class="tablewrap mt"><table><thead><tr><th>Typ</th><th>Färg</th><th class="right">Spolar</th>'
+             f'<th class="right">Kvar</th></tr></thead><tbody>{rows}</tbody></table></div></details>') if rows else ''
+    urows = ''.join(
+        f'<tr><td>{e(u.get("name") or "Okänd")}</td><td>'
+        + (f'<span class="color-dot" style="background:{e(u["color"])}"></span> {e(u["color"])}' if re.fullmatch(r'#[0-9A-F]{6}', u.get('color') or '') else '—')
+        + f'</td><td class="right">{"" if u.get("grams") is None else str(u["grams"]) + " g"}</td></tr>' for u in unmatched)
+    utable = (f'<details class="mt"><summary>{len(unmatched)} {"spole finns" if len(unmatched) == 1 else "spolar finns"} inte i katalogen</summary>'
+              f'<p class="muted" style="font-size:13px">Till exempel filament från andra tillverkare eller Bambu-serier som katalogen saknar.</p>'
+              f'<div class="tablewrap"><table><thead><tr><th>Filament</th><th>Färg</th><th class="right">Kvar</th></tr></thead>'
+              f'<tbody>{urows}</tbody></table></div></details>') if unmatched else ''
+    relink = ''
+    if status == 'expired' or not link['token']:
+        relink = f"""<form method="post" action="/konto/bambu/koppla" autocomplete="off" class="mt">{h}
+<input type="hidden" name="account" value="{e(link['account'])}"><input type="hidden" name="region" value="{e(link['region'])}">
+<div class="row"><div class="field"><label for="bp">Lösenord hos Bambu Lab för {e(link['account'])}</label>
+<input id="bp" name="password" type="password" autocomplete="off" required maxlength="256"></div>
+<div><button class="btn" type="submit">Logga in igen</button></div></div></form>"""
+    actions = f"""<div class="row mt">{'' if not link['token'] else f'<form method="post" action="/konto/bambu/synka">{h}<button class="btn" type="submit">Synka nu</button></form>'}
+<form method="post" action="/konto/bambu/koppla-fran">{h}<button class="btn danger" type="submit">Koppla från</button></form></div>"""
+    return (f'<section class="card" id="bambu"><h2>Bambu Lab-konto</h2>{intro}{out}{banner}{stats}{relink}{actions}'
+            f'{table}{utable}{note}</section>')

@@ -47,6 +47,28 @@ CREATE TABLE IF NOT EXISTS runs (
     log TEXT
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS bambu_links (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    account TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT 'global',
+    token TEXT,                         -- Bambu-token (~90 dagar), visas aldrig i gränssnittet
+    token_expires REAL,
+    linked REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ok',  -- ok | expired | error
+    error TEXT,
+    last_sync REAL,
+    last_attempt REAL,
+    matched TEXT,                       -- JSON {katalognyckel: {grams, total, spools}}
+    unmatched TEXT                      -- JSON [{name, color, grams}]
+);
+CREATE TABLE IF NOT EXISTS bambu_pending (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    account TEXT NOT NULL,
+    region TEXT NOT NULL,
+    step TEXT NOT NULL,                 -- code | tfa
+    tfa_key TEXT,
+    created REAL NOT NULL
+);
 """
 
 
@@ -84,6 +106,11 @@ def init():
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     with _lock:
         conn().executescript(SCHEMA)
+        try:  # databasen innehåller inloggningsnycklar: bara containeranvändaren får läsa den
+            import os
+            os.chmod(config.DB_PATH, 0o600)
+        except OSError:
+            pass
         # Avbrutna körningar (t.ex. omstart mitt i) markeras som misslyckade.
         conn().execute("UPDATE runs SET status='failed', finished=?, log=COALESCE(log,'')||'\nAvbruten (omstart).' "
                        "WHERE status='running'", (time.time(),))
@@ -253,3 +280,64 @@ def complete_login(user_id, now):
     with tx() as c:
         return c.execute('UPDATE users SET failed_logins=0, last_login=? WHERE id=? AND locked_until<=?',
                          (now, user_id, now)).rowcount == 1
+
+
+# --- Bambu Lab-koppling ---
+def get_bambu(user_id):
+    return conn().execute('SELECT * FROM bambu_links WHERE user_id=?', (user_id,)).fetchone()
+
+
+def list_bambu():
+    return conn().execute('SELECT * FROM bambu_links WHERE token IS NOT NULL').fetchall()
+
+
+def save_bambu_token(user_id, account, region, token, expires):
+    now = time.time()
+    with tx() as c:
+        c.execute('INSERT INTO bambu_links(user_id,account,region,token,token_expires,linked,status,error) '
+                  "VALUES(?,?,?,?,?,?,'ok',NULL) ON CONFLICT(user_id) DO UPDATE SET account=excluded.account, "
+                  "region=excluded.region, token=excluded.token, token_expires=excluded.token_expires, "
+                  "status='ok', error=NULL", (user_id, account, region, token, expires, now))
+        c.execute('DELETE FROM bambu_pending WHERE user_id=?', (user_id,))
+
+
+def save_bambu_sync(user_id, status, error=None, matched=None, unmatched=None):
+    now = time.time()
+    with tx() as c:
+        if status == 'ok':
+            c.execute("UPDATE bambu_links SET status='ok', error=NULL, last_sync=?, last_attempt=?, matched=?, "
+                      'unmatched=? WHERE user_id=?', (now, now, json.dumps(matched, ensure_ascii=False),
+                                                      json.dumps(unmatched, ensure_ascii=False), user_id))
+        else:
+            # Behåll senast synkade innehav; bara status/fel ändras.
+            c.execute('UPDATE bambu_links SET status=?, error=?, last_attempt=?' +
+                      (', token=NULL' if status == 'expired' else '') + ' WHERE user_id=?',
+                      (status, (error or '')[:300], now, user_id))
+
+
+def delete_bambu(user_id):
+    with tx() as c:
+        c.execute('DELETE FROM bambu_links WHERE user_id=?', (user_id,))
+        c.execute('DELETE FROM bambu_pending WHERE user_id=?', (user_id,))
+
+
+def set_bambu_pending(user_id, account, region, step, tfa_key=None):
+    with tx() as c:
+        c.execute('INSERT INTO bambu_pending(user_id,account,region,step,tfa_key,created) VALUES(?,?,?,?,?,?) '
+                  'ON CONFLICT(user_id) DO UPDATE SET account=excluded.account, region=excluded.region, '
+                  'step=excluded.step, tfa_key=excluded.tfa_key, created=excluded.created',
+                  (user_id, account, region, step, tfa_key, time.time()))
+
+
+def get_bambu_pending(user_id, max_age=900):
+    r = conn().execute('SELECT * FROM bambu_pending WHERE user_id=?', (user_id,)).fetchone()
+    if r and r['created'] < time.time() - max_age:
+        with tx() as c:
+            c.execute('DELETE FROM bambu_pending WHERE user_id=?', (user_id,))
+        return None
+    return r
+
+
+def clear_bambu_pending(user_id):
+    with tx() as c:
+        c.execute('DELETE FROM bambu_pending WHERE user_id=?', (user_id,))

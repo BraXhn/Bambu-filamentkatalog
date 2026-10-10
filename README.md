@@ -5,6 +5,7 @@ Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och an
 - **Katalog:** 229 färgvarianter inom 38 filamenttyper, med sökning, filter, kort- och tabellvy och CSV-export.
 - **Prisjämförelse:** pris inklusive frakt och köparskydd, uppdelat på vikt och refill/spole. Auktioner visas separat.
 - **Användare:** varje användare har sina egna ”Jag har detta filament”-markeringar, sparade på kontot och synliga på alla enheter.
+- **Synk från Bambu Lab:** koppla ditt Bambu Lab-konto så markeras spolarna i ditt filamentbibliotek automatiskt som ”Jag har”, med gram kvar per färg.
 - **Administration i webbläsaren:** lägg till och ta bort användare, återställ lösenord, lås upp konton, se prisuppdateringarnas status och starta en uppdatering direkt.
 
 ## Kom igång
@@ -56,6 +57,7 @@ Skydd som är inbyggt:
 - **Säkerhetsrubriker:** strikt Content-Security-Policy, HSTS bakom https, X-Frame-Options, `noindex`. nginx-versionen döljs.
 - **Container:** kör som icke-root med skrivskyddat filsystem och utan Linux-capabilities. Den behöver bara `/data` och `/tmp`.
 - **Prishämtaren:** hämtar bara via https från `www.3djake.se`, `www.3dprima.com` och `www.tradera.com`. Den publicerar bara länkar till dessa.
+- **Bambu-synken:** pratar bara med Bambu Labs egna adresser och GitHub (färgkodstabellen). Högst 6 inloggnings- eller synkförsök per kvart och användare, så att ditt Bambu-konto inte spärras av misstag.
 
 ## Prisuppdatering
 
@@ -69,6 +71,23 @@ Skydd som är inbyggt:
 
 Lägst hittat betyder lägst bland de kontrollerade erbjudandena, inte garanterat marknadens lägsta pris. Produktbilder och produktuppgifter kommer från respektive leverantör.
 
+## Synk från ditt Bambu Lab-filamentbibliotek
+
+Under **Mitt konto → Bambu Lab-konto** kan varje användare koppla sitt Bambu Lab-konto.
+
+1. Ange e-post och lösenord hos Bambu Lab.
+2. Ange koden från e-post, eller från autentiseringsappen om du har tvåstegsverifiering.
+
+Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Filament* i Bambu Handy och Bambu Studio.
+
+- **Bara läsning:** ingenting ändras någonsin i ditt Bambu-konto.
+- **Matchning:** spolarna kopplas till katalogens färger via Bambu Studios publika färgkodstabell (`filamentId` + färg → färgnummer). Den hämtas och cachas i `/data/state`. Spolar som inte finns i katalogen, till exempel andra tillverkare, listas separat.
+- **I katalogen:** färgerna visas som *Bambu-biblioteket · 640 g kvar* och räknas in i *Mina filament* och i CSV-exporten. Tomma och arkiverade spolar räknas inte. Dina egna markeringar finns kvar som vanligt.
+- **Synkas:** var sjätte timme (`BAMBU_SYNC_HOURS`), när du klickar *Synka nu* och direkt när du kopplar kontot.
+- **Lösenordet** skickas bara till Bambu Lab och sparas inte. Inloggningen (token) gäller cirka 90 dagar och kan inte förnyas automatiskt. När den gått ut visas det i katalogen och på Mitt konto. Du loggar då in igen. Under tiden visas senast synkade spolar.
+
+> Bambu Lab har inget officiellt API för filamentbiblioteket. Synken använder samma anrop som Bambu Studio och Bambu Handy (dokumenterade av [OpenBambuAPI](https://github.com/Doridian/OpenBambuAPI)) och kan sluta fungera om Bambu ändrar något. Då visas ett tydligt fel och resten av katalogen påverkas inte.
+
 ## Inställningar (miljövariabler)
 
 | Variabel | Standard | Beskrivning |
@@ -81,6 +100,7 @@ Lägst hittat betyder lägst bland de kontrollerade erbjudandena, inte garantera
 | `COOKIE_SECURE` | `auto` | `true` = alltid Secure-cookie, `auto` = när proxyn anger https |
 | `SESSION_IDLE_DAYS` / `SESSION_MAX_DAYS` | `14` / `60` | Utloggning efter inaktivitet eller maxtid |
 | `PASSWORD_MIN_LENGTH` | `10` | Minsta lösenordslängd |
+| `BAMBU_SYNC_HOURS` | `6` | Hur ofta kopplade Bambu Lab-konton synkas (0 = bara manuellt) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | – | Skapar första administratören automatiskt i stället för installationskod |
 
 ## Kommandon i containern
@@ -99,7 +119,7 @@ All data finns i `/data`:
 
 | Sökväg | Innehåll |
 |---|---|
-| `katalog.db` | Användare, sessioner, markeringar och körhistorik |
+| `katalog.db` | Användare, sessioner, markeringar, körhistorik och Bambu-inloggningar (filen är bara läsbar för containern) |
 | `www/offers.json` | Senaste priserna |
 | `state/` | Kända produktlänkar |
 
@@ -110,7 +130,7 @@ Kopiera mappen när containern är stoppad, eller använd `sqlite3 katalog.db ".
 | Sökväg | Innehåll |
 |---|---|
 | `dist/` | Webbappen (HTML, CSS, JS) och inbyggd data |
-| `katalog/` | Server: inloggning (`web.py`, `security.py`, `db.py`), sidor (`pages.py`), nginx-konfiguration (`nginx.py`), schemaläggning (`scheduler.py`) |
+| `katalog/` | Server: inloggning (`web.py`, `security.py`, `db.py`), sidor (`pages.py`), Bambu Lab-synk (`bambu.py`), nginx-konfiguration (`nginx.py`), schemaläggning (`scheduler.py`) |
 | `katalog/prices/` | Prishämtare per källa och sammanslagning (`update.py`) |
 | `assets/` | Stil och ikon för inloggnings- och adminsidorna |
 | `tests/` | Enhetstester och integrationstest mot containern |

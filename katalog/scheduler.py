@@ -15,6 +15,7 @@ except Exception:  # noqa: BLE001
 _wake = threading.Event()
 _pending = []
 _lock = threading.Lock()
+_last_bambu = time.time() - 3000  # första automatiska synken ca 10 min efter start
 
 
 def _parse_time():
@@ -77,6 +78,7 @@ def run_now(trigger_name):
 
 
 def _loop():
+    global _last_bambu
     db.init()  # egen anslutning i tråden
     if config.UPDATE_ON_START:
         trigger('start')
@@ -98,6 +100,14 @@ def _loop():
                 run_now(kind)
             except Exception as ex:  # noqa: BLE001
                 print(f'[priser] fel: {ex}', flush=True)
+        # Bambu Lab-synk för kopplade konton.
+        if config.BAMBU_SYNC_HOURS > 0 and time.time() - _last_bambu >= config.BAMBU_SYNC_HOURS * 3600:
+            _last_bambu = time.time()
+            try:
+                from . import bambu
+                bambu.sync_all(lambda m: print('[bambu] ' + m, flush=True))
+            except Exception as ex:  # noqa: BLE001
+                print(f'[bambu] fel: {ex}', flush=True)
         # Städa gamla sessioner en gång per varv.
         try:
             now = time.time()
