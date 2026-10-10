@@ -50,7 +50,7 @@ def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=Non
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml"></head><body>
 <header class="top"><a class="brand" href="/"><i>▥</i> BAMBU <span>/ filamentkatalog</span></a>{nav}</header>
 <main class="page{' narrow' if narrow else ''}">{body}</main>
-<footer class="foot">{e(config.SITE_NAME)}</footer></body></html>"""
+<footer class="foot">{e(config.SITE_NAME)}<br>Created by Helicon &amp; BraXhn</footer></body></html>"""
 
 
 def message(kind, text):
