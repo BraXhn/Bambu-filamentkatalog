@@ -88,6 +88,7 @@ check('HttpOnly' in cookie and 'SameSite=Lax' in cookie, 'sessionscookie är Htt
 s, h, b = req(op, '/', headers={'Accept-Encoding': 'gzip'})
 check(s == 200 and h.get('Content-Encoding') == 'gzip', 'katalogen serveras förkomprimerad efter inloggning', f'{s} {h.get("Content-Encoding")}')
 check(b'filamentkatalog' in gzip.decompress(b) if h.get('Content-Encoding') == 'gzip' else False, 'index.html innehåll')
+check(h.get('Cache-Control') == 'no-store' and b'app.js?v=' in gzip.decompress(b), 'sidan cachas aldrig och skripten är versionsmärkta')
 s, h, b = req(op, '/offers.json', headers={'Accept-Encoding': 'gzip'})
 ok = s == 200
 try:

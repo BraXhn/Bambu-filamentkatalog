@@ -456,7 +456,14 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 return self.get_confirm_delete(int(m.group(1)))
             if not APP_PATH.match(path):
-                return self.static(path, cache='no-cache')
+                query = urllib.parse.urlsplit(self.path).query
+                if path in ('/', '/index.html'):
+                    cache = 'no-store'                                   # sidan hämtas alltid färsk
+                elif query.startswith('v='):
+                    cache = 'private, max-age=31536000, immutable'       # versionsmärkt skript
+                else:
+                    cache = 'no-cache'
+                return self.static(path, cache=cache)
             self.not_found()
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             self.close_connection = True
