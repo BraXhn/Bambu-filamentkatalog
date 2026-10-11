@@ -121,6 +121,10 @@ class RateLimiter:
                 while len(self._hits) > 40000:   # släng äldsta nycklarna (insättningsordning)
                     del self._hits[next(iter(self._hits))]
 
+    def count(self, key):
+        with self._lock:
+            return len(self._prune(key, time.time()))
+
     def forgive(self, key):
         """Tar bort den senaste träffen (för lyckade försök)."""
         with self._lock:
@@ -137,6 +141,9 @@ class RateLimiter:
 ip_failures = RateLimiter(20, 15 * 60)
 # Spärr per konto+adress: 8 misslyckade försök per kvart.
 pair_failures = RateLimiter(8, 15 * 60)
-# Global kontospärr (15 min) bara vid storskalig gissning från många adresser.
-ACCOUNT_MAX_FAILS = 50
+# Misslyckanden per konto från alla adresser: ger fördröjning (inte spärr) vid storskalig gissning.
+account_failures = RateLimiter(10 ** 6, 15 * 60)
+# Hård global spärr används inte längre (kunde missbrukas för att låsa ute ägaren); administratören
+# kan fortfarande låsa upp äldre spärrar.
+ACCOUNT_MAX_FAILS = 10 ** 9
 ACCOUNT_LOCK_SECONDS = 15 * 60
