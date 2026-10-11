@@ -106,6 +106,12 @@ jobs:
           echo "::notice title=Loggrader::$(docker logs katalog 2>&1 | grep -c '"GET') sidvisningar loggade"
           [ "$(docker inspect -f '{{.State.Running}}' katalog)" = true ]
           [ "$(sudo stat -c %u:%g "$RUNNER_TEMP/appdata")" = "99:100" ]
+      - name: Gammal installation (alla rättigheter borttagna) ger tydligt fel
+        run: |
+          docker run -d --name gammal --cap-drop ALL --security-opt no-new-privileges katalog:test
+          sleep 4
+          docker logs gammal 2>&1 | grep -q 'Extra Parameters' && echo "::notice title=Gammal installation::tydligt felmeddelande i loggen"
+          docker logs gammal 2>&1 | grep -q 'Extra Parameters'
       - name: Containerlogg vid fel
         if: failure()
         run: docker logs katalog 2>&1 | tail -30 | sed 's/^/::error title=Containerlogg::/'
