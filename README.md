@@ -4,6 +4,7 @@ Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och an
 
 - **Katalog:** 229 färgvarianter inom 38 filamenttyper, med sökning, filter, kort- och tabellvy och CSV-export.
 - **Prisjämförelse:** pris inklusive frakt och köparskydd, uppdelat på vikt och refill/spole. Auktioner visas separat.
+- **Inköpslista:** lägg filament i en lista. Sidan *Inköpslista* visar var varje filament bör köpas, med direktlänk, och en uppskattad totalsumma inklusive frakt. Köpen fördelas så att totalen blir så låg som möjligt, med hänsyn till fri frakt och samfrakt.
 - **Billigast och erbjudanden:** sortera på lägsta aktuella pris eller största rabatt, och filtrera fram aktuella erbjudanden med rabatt i procent mot ordinarie pris.
 - **Användare:** varje användare har sina egna ”Jag har detta filament”-markeringar, sparade på kontot och synliga på alla enheter.
 - **Synk från Bambu Lab:** koppla ditt Bambu Lab-konto så markeras spolarna i ditt filamentbibliotek automatiskt som ”Jag har”, med gram kvar per färg.

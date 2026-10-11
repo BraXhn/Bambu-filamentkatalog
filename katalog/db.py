@@ -38,6 +38,14 @@ CREATE TABLE IF NOT EXISTS owned (
     items TEXT NOT NULL,
     updated REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cart (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,                  -- katalognyckel, t.ex. "PLA Basic|10101"
+    qty INTEGER NOT NULL DEFAULT 1,
+    pack TEXT NOT NULL DEFAULT 'any',   -- any | Spole | Refill
+    added REAL NOT NULL,
+    PRIMARY KEY (user_id, key)
+);
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY,
     started REAL NOT NULL,
@@ -356,3 +364,32 @@ def get_bambu_pending(user_id, max_age=900):
 def clear_bambu_pending(user_id):
     with tx() as c:
         c.execute('DELETE FROM bambu_pending WHERE user_id=?', (user_id,))
+
+
+# --- inköpslista ---
+CART_MAX_ITEMS = 200
+CART_MAX_QTY = 50
+
+
+def get_cart(user_id):
+    return conn().execute('SELECT key, qty, pack FROM cart WHERE user_id=? ORDER BY added', (user_id,)).fetchall()
+
+
+def set_cart_item(user_id, key, qty, pack='any'):
+    """qty <= 0 tar bort raden. Returnerar False om listan är full."""
+    with tx() as c:
+        if qty <= 0:
+            c.execute('DELETE FROM cart WHERE user_id=? AND key=?', (user_id, key))
+            return True
+        exists = c.execute('SELECT 1 FROM cart WHERE user_id=? AND key=?', (user_id, key)).fetchone()
+        if not exists and c.execute('SELECT COUNT(*) FROM cart WHERE user_id=?', (user_id,)).fetchone()[0] >= CART_MAX_ITEMS:
+            return False
+        c.execute('INSERT INTO cart(user_id,key,qty,pack,added) VALUES(?,?,?,?,?) '
+                  'ON CONFLICT(user_id,key) DO UPDATE SET qty=excluded.qty, pack=excluded.pack',
+                  (user_id, key, min(int(qty), CART_MAX_QTY), pack, time.time()))
+        return True
+
+
+def clear_cart(user_id):
+    with tx() as c:
+        c.execute('DELETE FROM cart WHERE user_id=?', (user_id,))
