@@ -1,18 +1,19 @@
-"""HTTP-server bakom nginx (lyssnar bara på 127.0.0.1).
+"""Webbserver: en enda process som serverar katalogen, inloggning, konto, admin och API.
 
-nginx frågar /auth/check (auth_request) inför varje statisk fil. Allt annat
-(inloggning, konto, admin, API) går hit via proxy.
+Statiska filer serveras från minnet (förkomprimerade, med ETag). Varje förfrågan loggas.
 """
 import http.cookies
 import ipaddress
 import json
 import re
+import socket
 import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import bambu, config, db, pages, scheduler, security
+from .static import store
 
 COOKIE = 'katalog_sid'
 PRE_COOKIE = 'katalog_pre'
@@ -38,6 +39,23 @@ def _dummy(pw):
 
 
 bambu_attempts = security.RateLimiter(6, 15 * 60)
+login_posts = security.RateLimiter(10, 60)          # högst 10 inloggningsförsök per minut och IP
+MAX_CONNECTIONS = 96                                 # samtidiga anslutningar (en tråd var)
+_trusted = [ipaddress.ip_network(n) for n in config.TRUSTED_PROXIES]
+CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-src 'self' 'unsafe-inline'; "
+       "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+       "frame-ancestors 'none'")
+PUBLIC = {'/healthz', '/robots.txt', '/favicon.ico'}
+APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api)(/|$)')
+STARTUP_ERROR = None   # sätts om datamappen inte går att använda; visas då på alla sidor
+
+
+def _is_trusted(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(a in n for n in _trusted)
 _names_cache = {}
 
 
@@ -76,9 +94,13 @@ def safe_next(url):
 class Handler(BaseHTTPRequestHandler):
     server_version = 'katalog'
     sys_version = ''
-    # HTTP/1.0 + Connection: close: varje anslutning bär exakt en förfrågan, så ett oläst
-    # meddelandekropp kan aldrig tolkas som en ny (smugglad) förfrågan.
-    protocol_version = 'HTTP/1.0'
+    protocol_version = 'HTTP/1.1'     # keep-alive för snabb sidladdning
+    timeout = 20                      # sekunder; stänger tysta/långsamma anslutningar
+    disable_nagle_algorithm = True    # annars ~40 ms extra per svar (Nagle + fördröjd ACK)
+
+    def setup(self):
+        super().setup()
+        self._t0 = time.monotonic()
 
     def finish(self):
         try:
@@ -86,21 +108,49 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             db.close_thread_conn()
 
-    # ---------- hjälpare ----------
-    def log_message(self, fmt, *args):  # nginx loggar redan förfrågningarna
-        pass
+    # ---------- loggning ----------
+    def log_message(self, fmt, *args):
+        msg = fmt % args
+        if 'timed out' in msg:
+            return  # tysta anslutningar som stängs efter timeout är normalt
+        print(f'[http] {self.client_address[0]} {msg}', flush=True)
 
+    def log_request(self, code='-', size='-'):
+        pass  # vi loggar själva i send()/static, med tid och utan frågesträng
+
+    def _log(self, code, size):
+        path = urllib.parse.urlsplit(self.path).path[:120]
+        ms = int((time.monotonic() - getattr(self, '_t0', time.monotonic())) * 1000)
+        if path != '/healthz':
+            print(f'{self.client_ip} "{self.command} {path}" {code} {size} {ms}ms', flush=True)
+
+    def handle_one_request(self):
+        self._t0 = time.monotonic()
+        for attr in ('_sess', '_body_read'):
+            self.__dict__.pop(attr, None)
+        super().handle_one_request()
+
+    # ---------- hjälpare ----------
     @property
     def client_ip(self):
-        ip = self.headers.get('X-Real-IP', '') or self.client_address[0]
-        try:
-            return str(ipaddress.ip_address(ip.strip()))
-        except ValueError:
-            return self.client_address[0]
+        peer = self.client_address[0]
+        if peer.startswith('::ffff:'):
+            peer = peer[7:]
+        if _is_trusted(peer):
+            # Gå baklänges genom X-Forwarded-For och ta första adress som inte är en betrodd proxy.
+            for ip in reversed([x.strip() for x in (self.headers.get('X-Forwarded-For') or '').split(',') if x.strip()]):
+                try:
+                    ipaddress.ip_address(ip)
+                except ValueError:
+                    break
+                if not _is_trusted(ip):
+                    return ip
+        return peer
 
     @property
     def is_https(self):
-        return self.headers.get('X-Forwarded-Proto', '').lower() == 'https'
+        peer = self.client_address[0].replace('::ffff:', '')
+        return _is_trusted(peer) and (self.headers.get('X-Forwarded-Proto') or '').lower() == 'https'
 
     def cookies(self):
         c = http.cookies.SimpleCookie()
@@ -121,19 +171,37 @@ class Handler(BaseHTTPRequestHandler):
             parts.append(f'Max-Age={int(max_age)}')
         return '; '.join(parts)
 
-    def send(self, code, body=b'', ctype='text/html; charset=utf-8', headers=None):
+    def _common_headers(self, cache):
+        self.send_header('Content-Security-Policy', CSP)
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('Referrer-Policy', 'same-origin')
+        self.send_header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+        self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        self.send_header('X-Robots-Tag', 'noindex, nofollow')
+        self.send_header('Cache-Control', cache)
+        if self.is_https:
+            self.send_header('Strict-Transport-Security', 'max-age=31536000')
+        # Oläst meddelandekropp: stäng anslutningen så resterna aldrig tolkas som en ny förfrågan.
+        if int(self.headers.get('Content-Length') or 0) > 0 and not getattr(self, '_body_read', False):
+            self.close_connection = True
+        if self.close_connection:
+            self.send_header('Connection', 'close')
+
+    def send(self, code, body=b'', ctype='text/html; charset=utf-8', headers=None, cache='no-store'):
         if isinstance(body, str):
             body = body.encode('utf-8')
-        self.close_connection = True
         self.send_response(code)
-        self.send_header('Connection', 'close')
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
         for k, v in (headers or []):
             self.send_header(k, v)
+        self._common_headers(cache)
         self.end_headers()
         if self.command != 'HEAD':
             self.wfile.write(body)
+        self._log(code, len(body))
 
     def redirect(self, location, headers=None):
         self.send(303, b'', headers=[('Location', location)] + (headers or []))
@@ -146,6 +214,7 @@ class Handler(BaseHTTPRequestHandler):
         if length > MAX_BODY:
             raise ValueError('för stor')
         raw = self.rfile.read(length).decode('utf-8', errors='replace')
+        self._body_read = True
         return {k: v[0] for k, v in urllib.parse.parse_qs(raw, keep_blank_values=True, max_num_fields=50).items()}
 
     def same_origin(self):
@@ -207,11 +276,28 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    def _reject_bad_framing(self):
+        """Chunkad överföring av förfrågningskroppar stöds inte; neka hellre än att tolka fel."""
+        if self.headers.get('Transfer-Encoding'):
+            self.close_connection = True
+            self.send(411, 'Content-Length krävs', 'text/plain; charset=utf-8')
+            return True
+        return False
+
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
         try:
-            if path == '/auth/check':
-                return self.auth_check()
+            if self._reject_bad_framing():
+                return
+            if path == '/healthz':
+                return self.send(503 if STARTUP_ERROR else 200, 'fel\n' if STARTUP_ERROR else 'ok\n',
+                                 'text/plain; charset=utf-8')
+            if path == '/robots.txt':
+                return self.send(200, 'User-agent: *\nDisallow: /\n', 'text/plain; charset=utf-8', cache='public, max-age=86400')
+            if path.startswith('/assets/') or path == '/favicon.ico':
+                return self.static(path, cache='public, max-age=86400')
+            if STARTUP_ERROR:
+                return self.send(503, pages.error_page(503, 'Katalogen kan inte starta', STARTUP_ERROR))
             if path == '/login':
                 return self.get_login()
             if path == '/setup':
@@ -222,23 +308,66 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_owned_get()
             u = self.user()
             if not u:
-                return self.redirect('/login?next=' + urllib.parse.quote(self.path, safe=''))
+                if APP_PATH.match(path) or store.get(path):
+                    return self.redirect('/login?next=' + urllib.parse.quote(self.path, safe='/'))
+                return self.send(404, pages.error_page(404, 'Sidan finns inte', 'Kontrollera adressen.'))
+            if u['must_change_pw']:
+                if path != '/konto':
+                    return self.redirect('/konto')
             if path == '/konto':
                 return self.get_account()
-            if u['must_change_pw']:
-                return self.redirect('/konto')
             if path == '/admin':
                 return self.get_admin()
             m = re.fullmatch(r'/admin/anvandare/(\d+)/ta-bort', path)
             if m:
                 return self.get_confirm_delete(int(m.group(1)))
+            if not APP_PATH.match(path):
+                return self.static(path, cache='no-cache')
             self.not_found()
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
         except Exception as ex:  # noqa: BLE001
             self.server_error(ex)
+
+    def static(self, path, cache):
+        f = store.get(path)
+        if not f:
+            return self.not_found()
+        if self.headers.get('If-None-Match') == f.etag:
+            self.send_response(304)
+            self.send_header('ETag', f.etag)
+            self._common_headers(cache)
+            self.end_headers()
+            return self._log(304, 0)
+        use_gz = f.gz is not None and 'gzip' in (self.headers.get('Accept-Encoding') or '')
+        body = f.gz if use_gz else f.body
+        self.send_response(200)
+        self.send_header('Content-Type', f.ctype)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('ETag', f.etag)
+        if f.gz is not None:
+            self.send_header('Vary', 'Accept-Encoding')
+        if use_gz:
+            self.send_header('Content-Encoding', 'gzip')
+        self._common_headers(cache)
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+        self._log(200, len(body))
 
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if self._reject_bad_framing():
+                return
+            if STARTUP_ERROR:
+                return self.send(503, pages.error_page(503, 'Katalogen kan inte starta', STARTUP_ERROR))
+            if path in ('/login', '/setup'):
+                if login_posts.blocked(self.client_ip):
+                    self.close_connection = True
+                    return self.send(429, pages.error_page(429, 'För många försök',
+                                                           'Vänta en minut och försök igen.'))
+                login_posts.hit(self.client_ip)
             if path == '/login':
                 return self.post_login()
             if path == '/setup':
@@ -260,17 +389,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self.admin_post(path)
             self.not_found()
         except ValueError:
+            self.close_connection = True
             self.send(413, 'För stor förfrågan', 'text/plain; charset=utf-8')
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
         except Exception as ex:  # noqa: BLE001
             self.server_error(ex)
 
     def do_PUT(self):
         try:
+            if self._reject_bad_framing():
+                return
             if urllib.parse.urlsplit(self.path).path == '/api/owned':
                 return self.api_owned_put()
             self.not_found()
         except Exception as ex:  # noqa: BLE001
             self.server_error(ex)
+
+    def _not_allowed(self):
+        self.close_connection = True
+        self.send(405, 'Metoden stöds inte', 'text/plain; charset=utf-8', headers=[('Allow', 'GET, HEAD, POST, PUT')])
+
+    do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = _not_allowed
 
     def not_found(self):
         u = self.user()
@@ -279,7 +419,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def server_error(self, ex):
         import traceback
+        print(f'[fel] {self.command} {urllib.parse.urlsplit(self.path).path}: {ex!r}', flush=True)
         traceback.print_exc()
+        self.close_connection = True
         try:
             self.send(500, pages.error_page(500, 'Något gick fel', 'Ett oväntat fel uppstod. Försök igen.'))
         except Exception:  # noqa: BLE001
@@ -290,13 +432,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send(403, pages.error_page(403, 'Åtkomst nekad',
                                         'Sidan kunde inte verifieras eller du saknar behörighet. Ladda om sidan och försök igen.',
                                         u, self.session()['csrf'] if u else ''))
-
-    # ---------- auth för nginx ----------
-    def auth_check(self):
-        u = self.user()
-        if u and not u['must_change_pw']:
-            return self.send(204, headers=[('X-Auth-User', u['username'])])
-        self.send(401)
 
     # ---------- inloggning ----------
     def get_login(self):
@@ -622,7 +757,9 @@ class Handler(BaseHTTPRequestHandler):
         if length > MAX_BODY:
             return self.json(413, {'error': 'för stor'})
         try:
-            data = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length)
+            self._body_read = True
+            data = json.loads(raw)
             items = data['items']
             if not isinstance(items, list) or len(items) > 5000 or \
                     not all(isinstance(x, str) and 0 < len(x) <= 120 for x in items):
@@ -636,12 +773,70 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
-    request_queue_size = 64
+    request_queue_size = 128
+    allow_reuse_address = True
+
+    def __init__(self, addr, handler, family):
+        self.address_family = family
+        self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        super().__init__(addr, handler, bind_and_activate=False)
+        if family == socket.AF_INET6:
+            try:
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            except OSError:
+                pass
+        try:
+            self.server_bind()
+            self.server_activate()
+        except BaseException:
+            self.server_close()
+            raise
+
+    def process_request(self, request, client_address):
+        # Högst MAX_CONNECTIONS samtidiga anslutningar; överskott stängs i stället för att äta upp minnet.
+        if not self._slots.acquire(timeout=5):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+    def handle_error(self, request, client_address):
+        import sys
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError, TimeoutError, socket.timeout)):
+            return
+        print(f'[http] fel från {client_address[0]}: {exc!r}', flush=True)
 
 
-def serve():
-    srv = Server(('127.0.0.1', config.APP_PORT), Handler)
-    print(f'[app] lyssnar på 127.0.0.1:{config.APP_PORT}', flush=True)
-    print(f'[app] Öppna katalogen på http://<containerns-eller-serverns-IP>:{config.LISTEN_PORT} '
-          f'(egen IP i Unraid: port {config.LISTEN_PORT}; delad IP: den port du mappat)', flush=True)
-    srv.serve_forever()
+def make_server():
+    """Lyssnar på alla adresser (IPv4 och, om det finns, IPv6)."""
+    try:
+        return Server(('::', config.LISTEN_PORT), Handler, socket.AF_INET6)
+    except OSError:
+        return Server(('0.0.0.0', config.LISTEN_PORT), Handler, socket.AF_INET)
+
+
+def local_addresses():
+    ips = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('192.0.2.1', 9))   # skickar inget; ger bara utgående adress
+        ips.add(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    return sorted(ip for ip in ips if not ip.startswith('127.'))

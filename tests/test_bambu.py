@@ -41,8 +41,8 @@ class BambuFlow(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.fake_port, self.port = free_port(), free_port()
         self.fake = subprocess.Popen([sys.executable, os.path.join(R, 'tests', 'fake_bambu.py'), str(self.fake_port)])
-        env = dict(os.environ, KATALOG_DATA_DIR=self.tmp + '/data', KATALOG_START_NGINX='false',
-                   KATALOG_SEED_DIR=R + '/dist', KATALOG_APP_PORT=str(self.port), PRICE_UPDATE_TIME='',
+        env = dict(os.environ, KATALOG_DATA_DIR=self.tmp + '/data', 
+                   KATALOG_SEED_DIR=R + '/dist', PORT=str(self.port), PRICE_UPDATE_TIME='',
                    BAMBU_SYNC_HOURS='0', ADMIN_USERNAME='anna', ADMIN_PASSWORD='Bla-bil-kor-fort-9',
                    KATALOG_BAMBU_TEST_BASE=f'http://127.0.0.1:{self.fake_port}')
         self.app = subprocess.Popen([sys.executable, '-m', 'katalog', 'serve'], cwd=R, env=env,

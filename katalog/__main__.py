@@ -20,17 +20,26 @@ import time
 from . import __version__, config, db, security
 
 
-def _check_data_dir():
+def _data_dir_error():
+    """None om datamappen är skrivbar, annars ett felmeddelande med lösning."""
     try:
         config.DATA_DIR.mkdir(parents=True, exist_ok=True)
         probe = config.DATA_DIR / '.write-test'
         probe.write_text('ok')
         probe.unlink()
         _warn_fuse()
+        return None
     except OSError as e:
-        sys.exit(f'FEL: kan inte skriva till {config.DATA_DIR} ({e}).\n'
-                 f'Containern kör som användare {os.getuid()}:{os.getgid()}. Ge den skrivrätt, t.ex.\n'
-                 f'  chown -R {os.getuid()}:{os.getgid()} /sökväg/till/data')
+        return (f'Containern kan inte skriva till datamappen {config.DATA_DIR} ({e.strerror or e}). '
+                f'Den kör som användare {os.getuid()}:{os.getgid()}. Ge den skrivrätt på servern, t.ex. i Unraids '
+                f'terminal: chown -R {os.getuid()}:{os.getgid()} /mnt/user/appdata/bambu-filamentkatalog '
+                f'– och starta sedan om containern.')
+
+
+def _check_data_dir():
+    err = _data_dir_error()
+    if err:
+        sys.exit('FEL: ' + err)
 
 
 def _warn_fuse():
@@ -87,36 +96,39 @@ def _bootstrap_admin():
 
 
 def serve():
-    print(f'[app] Bambu filamentkatalog {__version__}', flush=True)
-    _check_data_dir()
-    db.init()
-    _seed()
-    _bootstrap_admin()
     from . import scheduler, web
-    nginx_proc = None
-    if config.START_NGINX:
-        from . import nginx
-        nginx_proc = nginx.start()
+    from .static import store
+    bar = '=' * 68
+    print(f'{bar}\n  Bambu filamentkatalog {__version__}\n{bar}', flush=True)
+    print(f'[start] användare {os.getuid()}:{os.getgid()}, data i {config.DATA_DIR}, tidszon {config.TIMEZONE}', flush=True)
+    err = _data_dir_error()
+    if err:
+        web.STARTUP_ERROR = err
+        print('[FEL] ' + err, flush=True)
+        print('[FEL] Webbservern startar ändå och visar felet i webbläsaren.', flush=True)
+    else:
+        db.init()
+        _seed()
+        _bootstrap_admin()
+    n = store.load()
+    srv = web.make_server()
+    print(f'[start] {n} filer i minnet, lyssnar på port {config.LISTEN_PORT}', flush=True)
+    for ip in web.local_addresses():
+        print(f'[start] Öppna katalogen på:  http://{ip}:{config.LISTEN_PORT}', flush=True)
+    print('[start] (Delar containern Unraids IP används i stället porten du mappat.) Varje sidvisning loggas nedan.', flush=True)
 
     def stop(*_):
-        if nginx_proc and nginx_proc.poll() is None:
-            nginx_proc.send_signal(signal.SIGQUIT)
-            try:
-                nginx_proc.wait(10)
-            except Exception:  # noqa: BLE001
-                nginx_proc.kill()
-        os._exit(0)
+        print('[stopp] avslutar', flush=True)
+        threading.Thread(target=srv.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    scheduler.start()
-    threading.Thread(target=web.serve, name='web', daemon=True).start()
-    # Om nginx dör avslutas containern, så Docker kan starta om den.
-    while True:
-        time.sleep(2)
-        if nginx_proc and nginx_proc.poll() is not None:
-            print(f'[nginx] avslutades med kod {nginx_proc.returncode}', flush=True)
-            os._exit(1)
+    if not err:
+        scheduler.start()
+    try:
+        srv.serve_forever(poll_interval=0.5)
+    finally:
+        srv.server_close()
 
 
 def _ask_password(username):
