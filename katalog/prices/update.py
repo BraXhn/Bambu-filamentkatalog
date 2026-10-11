@@ -9,7 +9,7 @@ import traceback
 from pathlib import Path
 
 from .. import config
-from . import bambustore, jake, prima, tradera
+from . import bambustore, experten, jake, prima, tradera, verkstan
 from .common import Http, Matcher, allowed_url
 
 SOURCES = {
@@ -17,6 +17,8 @@ SOURCES = {
     '3dprima': ('3D Prima', prima, lambda o: o['shop'] == prima.SHOP),
     'tradera': ('Tradera', tradera, lambda o: o['shop'].startswith('Tradera')),
     'bambulab': ('Bambu Lab EU', bambustore, lambda o: o['shop'] == bambustore.SHOP),
+    '3dverkstan': ('3DVerkstan', verkstan, lambda o: o['shop'] == verkstan.SHOP),
+    '3dexperten': ('3DExperten', experten, lambda o: o['shop'] == experten.SHOP),
 }
 SEED_STATE = Path(__file__).with_name('seed_state.json')
 HISTORY_DAYS = 60          # hur länge prishistoriken sparas

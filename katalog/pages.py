@@ -158,7 +158,7 @@ def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', s
     runs_table = (f'<div class="tablewrap mt"><table><thead><tr><th>Startad</th><th>Resultat</th><th>Källor (antal erbjudanden)</th></tr>'
                   f'</thead><tbody>{rows}</tbody></table></div>') if rows else ''
     prices = f"""<section class="card" id="priser"><h2>Prisuppdatering</h2>
-<p class="sub">Priser hämtas automatiskt från 3DJake, 3D Prima, Bambu Lab EU och Tradera. Om en källa inte svarar behålls dess senaste priser.</p>
+<p class="sub">Priser hämtas automatiskt från 3DJake, 3D Prima, 3DVerkstan, 3DExperten, Bambu Lab EU och Tradera. Om en källa inte svarar behålls dess senaste priser.</p>
 <div class="stats"><div class="stat"><span>Senaste körning</span><strong>{last_txt}</strong></div>
 <div class="stat"><span>Nästa schemalagda</span><strong>{e(next_run)}</strong></div>
 <div class="stat"><span>Erbjudanden just nu</span><strong>{e(offers_info)}</strong></div></div>
@@ -332,32 +332,34 @@ def _eur(v):
 
 
 def _bulk_box(sh):
-    """Tydlig redovisning av Bambu Lab:s mängdrabatt (och hur nära nästa nivå man är)."""
+    """Tydlig redovisning av butikens mängd-/volymrabatt och hur nära nästa nivå man är."""
     from . import config
     if not sh.get('bulk'):
         return ''
     items = ''
     for b in sh['bulk']:
-        if b['tier']:
-            pr = ' · '.join(f'{k.lower()} {_eur(eur)} ≈ {_kr(kr)}/rulle' for k, (eur, kr) in b['prices'].items())
-            items += (f'<li><b>{e(b["type"])}</b>: {b["rolls"]} rullar → nivå {b["tier"]}+ ({e(pr)}). '
-                      f'<b>Du sparar {_kr(b["saved"])}.</b>')
+        rolls = f'{b["rolls"]} {"st" if sh["shop"] != "Bambu Lab EU" else ("rulle" if b["rolls"] == 1 else "rullar")}'
+        if b['reached']:
+            items += f'<li><b>{e(b["label"])}</b>: {rolls} → {e(b["desc"])}. <b>Du sparar {_kr(b["saved"])}.</b>'
         else:
-            items += f'<li><b>{e(b["type"])}</b>: {b["rolls"]} {"rulle" if b["rolls"] == 1 else "rullar"} – ingen mängdrabatt ännu.'
+            items += f'<li><b>{e(b["label"])}</b>: {rolls} – ingen rabatt ännu.'
         if b['next']:
-            n = b['next']
-            pr = ' · '.join(f'{k.lower()} {_kr(v)}' for k, v in n['prices'].items())
-            items += (f' <span class="muted">Lägg till {n["missing"]} {"rulle" if n["missing"] == 1 else "rullar"} '
-                      f'{e(b["type"])} (valfri färg) för {n["min"]}+-priset: {e(pr)} per rulle.</span>')
+            items += f' <span class="muted">{e(b["next"])}</span>'
         items += '</li>'
-    tiers = ', '.join(f'{n}+ rullar: spole {_eur(p["Spole"])} / refill {_eur(p["Refill"])}' for n, p in config.BAMBU_BULK_TIERS)
-    head = (f'Mängdrabatt hos Bambu Lab: −{_kr(sh["discount"])}, inräknad i summan.' if sh.get('discount')
-            else 'Mängdrabatt hos Bambu Lab: inte uppnådd ännu.')
-    return (f'<div class="msg ok" style="margin:0 0 12px"><b>{head}</b>'
+    if sh['shop'] == 'Bambu Lab EU':
+        tiers = ', '.join(f'{n}+ rullar: spole {_eur(p["Spole"])} / refill {_eur(p["Refill"])}' for n, p in config.BAMBU_BULK_TIERS)
+        terms = (f'Bambu drar rabatten automatiskt i kassan. Villkor: {e(tiers)} per rulle à 1 kg av '
+                 f'{e(", ".join(config.BAMBU_BULK_TYPES))}. Kalkylen räknar ihop rullar av samma filamenttyp '
+                 f'(färger och spole/refill blandas) – kontrollera beloppet i kassan.')
+        name = 'Mängdrabatt hos Bambu Lab'
+    else:
+        terms = ('Butikens volymrabatt gäller per produkt; kalkylen räknar ihop alla färger av samma produkt. '
+                 'Rabatten dras i varukorgen – kontrollera beloppet i kassan.')
+        name = f'Volymrabatt hos {sh["shop"]}'
+    head = f'{name}: −{_kr(sh["discount"])}, inräknad i summan.' if sh.get('discount') else f'{name}: inte uppnådd ännu.'
+    return (f'<div class="msg ok" style="margin:0 0 12px"><b>{e(head)}</b>'
             f'<ul style="margin:6px 0;padding-left:18px">{items}</ul>'
-            f'<span style="font-size:12px">Bambu drar rabatten automatiskt i kassan. Villkor: {e(tiers)} per rulle à 1 kg av '
-            f'{e(", ".join(config.BAMBU_BULK_TYPES))}. Kalkylen räknar ihop rullar av samma filamenttyp '
-            f'(färger och spole/refill blandas) – kontrollera beloppet i kassan.</span></div>')
+            f'<span style="font-size:12px">{terms}</span></div>')
 
 
 def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg=''):
@@ -378,7 +380,7 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
     summary = f"""<section class="card"><div class="stats">
 <div class="stat"><span>Uppskattat totalt</span><strong style="font-size:24px">{_kr(t['total'])}</strong></div>
 <div class="stat"><span>Varor</span><strong>{_kr(t['goods'])}</strong></div>
-{f'<div class="stat"><span>Mängdrabatt Bambu Lab</span><strong style="color:var(--ok,#16a34a)">−{_kr(t["discount"])}</strong></div>' if t.get('discount') else ''}
+{f'<div class="stat"><span>Mängdrabatter</span><strong style="color:var(--ok,#16a34a)">−{_kr(t["discount"])}</strong></div>' if t.get('discount') else ''}
 <div class="stat"><span>Frakt{' (delvis uppskattad)' if t['estimated'] else ''}</span><strong>{_kr(t['shipping'])}</strong></div>
 <div class="stat"><span>Köparskydd (Tradera)</span><strong>{_kr(t['fee'])}</strong></div></div>
 <p class="sub" style="margin:0">{t['units']} {'spole' if t['units'] == 1 else 'spolar'} hos {len(plan['shops'])} {'butik/säljare' if len(plan['shops']) == 1 else 'butiker/säljare'}{est}.

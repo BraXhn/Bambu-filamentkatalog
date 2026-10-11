@@ -69,6 +69,12 @@ BAMBU_SYNC_HOURS = float(os.environ.get('BAMBU_SYNC_HOURS', '6') or 0)
 BAMBU_SHIPPING_SEK = _int('BAMBU_SHIPPING_SEK', 99)
 BAMBU_FREE_FROM_SEK = _int('BAMBU_FREE_FROM_SEK', 0)
 
+# 3DVerkstan och 3DExperten visar frakten först i kassan: uppskattad frakt och gräns för fri frakt (kr).
+VERKSTAN_SHIPPING_SEK = _int('VERKSTAN_SHIPPING_SEK', 79)
+VERKSTAN_FREE_FROM_SEK = _int('VERKSTAN_FREE_FROM_SEK', 0)
+EXPERTEN_SHIPPING_SEK = _int('EXPERTEN_SHIPPING_SEK', 69)
+EXPERTEN_FREE_FROM_SEK = _int('EXPERTEN_FREE_FROM_SEK', 739)
+
 # Bambu Lab EU:s mängdrabatt på filament (pris per rulle i euro, dras automatiskt i kassan).
 # Format: 'antal:spole/refill,...', tomt = ingen mängdrabatt. Rullar räknas per filamenttyp (färger blandas).
 # Källa: eu.store.bambulab.com/pages/bambu-filament (oktober 2026).
@@ -93,7 +99,7 @@ def _tiers(raw):
 BAMBU_BULK_TIERS = _tiers(os.environ.get('BAMBU_BULK_TIERS', '4:18.99/15.99,6:16.99/13.99'))
 
 # Prishämtning
-PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera,bambulab').split(',') if s.strip()]
+PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera,bambulab,3dverkstan,3dexperten').split(',') if s.strip()]
 HTTP_DELAY = float(os.environ.get('PRICE_HTTP_DELAY', '1.2'))   # sekunder mellan anrop per sajt
 TRADERA_QUERIES = [q.strip() for q in os.environ.get('TRADERA_QUERIES', 'bambu lab filament').split(';') if q.strip()]
 TRADERA_MAX_PAGES = _int('TRADERA_MAX_PAGES', 8)

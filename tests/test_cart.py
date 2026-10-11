@@ -56,13 +56,32 @@ class Planner(unittest.TestCase):
         self.assertEqual([s['shop'] for s in r['shops']], ['Bambu Lab EU'])
         b = r['shops'][0]
         self.assertEqual((b['goods'], b['discount'], b['total']), (1012, 308, 1012 - 308 + 99))
-        self.assertEqual(b['bulk'][0]['tier'], 4)
-        self.assertEqual(b['bulk'][0]['next']['missing'], 2)
+        self.assertTrue(b['bulk'][0]['reached'])
+        self.assertIn('nivå 4+', b['bulk'][0]['desc'])
+        self.assertIn('Lägg till 2 rullar PLA Basic', b['bulk'][0]['next'])
         self.assertTrue(all(l['bulkPrice'] == 176 for l in b['lines']))
         self.assertEqual(r['totals']['discount'], 308)
         # 3 refills når ingen nivå → 3DJake blir billigast.
         r = plan([(k, 1, 'Refill') for k in keys[:3]], offers, CAT, NOW)
         self.assertEqual([s['shop'] for s in r['shops']], ['3DJake Sverige'])
+
+    def test_percent_volume_discount(self):
+        keys = [f'PLA Basic|{i}' for i in '12345']
+        group = 'https://3dverkstan.se/produkt/pla/'
+        offers = []
+        for i, k in enumerate(keys):
+            offers.append(offer(k, '3DJake Sverige', 230, 115, f'https://www.3djake.se/{i}'))
+            offers.append(dict(offer(k, '3DVerkstan', 250, None, f'{group}?attribute_pa_farg={i}'),
+                               bulk=[[5, 10], [10, 15]], bulkGroup=group, title='PLA Basic with Spool · X'))
+        # 5 st: 5 × 225 = 1125 + 79 frakt = 1204 > 3DJake 5 × 230 = 1150 (fri frakt) → 3DJake.
+        r = plan([(k, 1, 'any') for k in keys], offers, CAT, NOW)
+        self.assertEqual([s['shop'] for s in r['shops']], ['3DJake Sverige'])
+        # Utan 3DJake: volymrabatten 10 % räknas in.
+        r = plan([(k, 1, 'any') for k in keys], [o for o in offers if o['shop'] == '3DVerkstan'], CAT, NOW)
+        v = r['shops'][0]
+        self.assertEqual((v['goods'], v['discount'], v['shipping']), (1250, 125, 79))
+        self.assertIn('−10 %', v['bulk'][0]['desc'])
+        self.assertIn('Lägg till 5 st', v['bulk'][0]['next'])
 
 
 if __name__ == '__main__':

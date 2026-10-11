@@ -1,6 +1,6 @@
 # Bambu filamentkatalog
 
-Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och användarkonton. Priserna från 3DJake, 3D Prima och Tradera uppdateras automatiskt varje natt. Allt körs i en enda Docker-container.
+Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och användarkonton. Priserna från 3DJake, 3D Prima, 3DVerkstan, 3DExperten, Bambu Lab EU och Tradera uppdateras automatiskt varje natt. Allt körs i en enda Docker-container.
 
 - **Katalog:** 229 färgvarianter inom 38 filamenttyper, med sökning, filter, kort- och tabellvy och CSV-export.
 - **Prisjämförelse:** pris inklusive frakt och köparskydd, uppdelat på vikt och refill/spole. Auktioner visas separat.
@@ -97,18 +97,20 @@ Skydd som är inbyggt:
 - **3DJake:** produktsidorna läses för pris och lagerstatus per variant (Spole/Refill). Nya färger hittas automatiskt via länkar mellan produkterna.
 - **3D Prima:** kända produktsidor läses för pris och lagerstatus.
 - **Bambu Lab EU** (`eu.store.bambulab.com`):
-  - Butikens produkt-API läses, med pris, ordinarie pris och lagerstatus per färg, spole/refill och storlek.
+  - Produktsidornas strukturerade data läses, med pris och lagerstatus per färg, spole/refill och storlek.
   - Priserna är i euro och räknas om till kronor med ECB:s dagskurs.
   - Butiken svarar bara europeiska besökare. Det fungerar från en server i Sverige, men inte från GitHub Actions.
   - Frakten visas först i deras kassa. Inköpslistan räknar med 99 kr; justera med `BAMBU_SHIPPING_SEK` och `BAMBU_FREE_FROM_SEK`.
   - **Mängdrabatt räknas in:** 4+ rullar (1 kg) av samma filamenttyp kostar 18,99 € per spole / 15,99 € per refill, 6+ rullar 16,99 € / 13,99 € (PLA Basic, PLA Matte, PETG HF, PETG Translucent, ABS, PLA Silk+). Färger och spole/refill räknas ihop per typ. Inköpslistan visar rabatten tydligt per butik och hur många rullar som saknas till nästa nivå. Ändra villkoren med `BAMBU_BULK_TIERS` och `BAMBU_BULK_TYPES` om Bambu ändrar dem.
+- **3DVerkstan:** butikens produkt-API listar Bambu Lab-filamenten och varje produktsida läses för pris, lagersaldo och volymrabatt per färg. Butiken visar priser exklusive moms; katalogen lägger på 25 % moms. Färgen kopplas via Bambus artikelnummer. Volymrabatten (t.ex. −10 % från 5 st, −15 % från 10 st, −20 % från 20 st per produkt, färger blandas) räknas in i inköpslistan. Frakten uppskattas till 79 kr (`VERKSTAN_SHIPPING_SEK`).
+- **3DExperten:** butikens produktlistor läses (en produkt per färg) med pris, jämförpris och lagerstatus. Svenska färgnamn översätts för att matcha katalogen. Frakten uppskattas till 69 kr, fri frakt till paketombud från 739 kr (`EXPERTEN_SHIPPING_SEK`, `EXPERTEN_FREE_FROM_SEK`).
 - **Tradera:** sökningen *bambu lab filament* läses. Bara aktiva annonser från svenska säljare som matchar en färg i katalogen tas med. Annonssidan läses för köp nu-pris, frakt, obligatoriskt köparskydd, skick, vikt och refill/spole.
 - Om en källa inte svarar, eller plötsligt ger noll träffar när den tidigare gav många, behålls dess tidigare priser. Statusen visas under Administration.
 - En körning tar ungefär 10–15 minuter, eftersom anropen sprids ut för att inte belasta butikerna.
 - Flödet *Kontrollera prishämtning* i GitHub Actions kör hämtningen varje måndag mot de riktiga sidorna. Det varnar om en butik har ändrat sitt sidformat.
 
 **Ordinarie pris och rabatt:**
-- I första hand används butikens egen uppgift: Traderas pris före rabatt, 3D Primas listpris, Bambu Labs jämförpris (`compare_at_price`), eller ett överstruket pris hos 3DJake.
+- I första hand används butikens egen uppgift: Traderas pris före rabatt, 3D Primas listpris, 3DVerkstans och 3DExpertens ordinarie pris/jämförpris, eller ett överstruket pris hos 3DJake.
 - Annars används det typiska priset (medianen) för samma erbjudande de senaste 30 dagarna. Det kräver minst 7 dagars historik, så sådana rabatter syns först efter ungefär en vecka.
 - Bara rabatter på minst 5 % visas.
 - Prishistoriken sparas i `/data/state/price_history.json`.
@@ -139,9 +141,11 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 | `TZ` | `Europe/Stockholm` | Tidszon för schemat och visade tider |
 | `PRICE_UPDATE_TIME` | `01:00` | När priserna uppdateras. Tom stänger av schemat. |
 | `PRICE_UPDATE_ON_START` | `false` | Uppdatera direkt när containern startar |
-| `PRICE_SOURCES` | `3djake,3dprima,tradera,bambulab` | Vilka källor som används |
+| `PRICE_SOURCES` | `3djake,3dprima,tradera,bambulab,3dverkstan,3dexperten` | Vilka källor som används |
 | `BAMBU_SHIPPING_SEK` / `BAMBU_FREE_FROM_SEK` | `99` / – | Bambu Lab EU:s frakt och gräns för fri frakt i inköpslistan |
 | `BAMBU_BULK_TIERS` | `4:18.99/15.99,6:16.99/13.99` | Bambu Lab EU:s mängdrabatt: `antal:spole€/refill€`, tomt = av |
+| `VERKSTAN_SHIPPING_SEK` / `VERKSTAN_FREE_FROM_SEK` | `79` / – | 3DVerkstans uppskattade frakt och gräns för fri frakt |
+| `EXPERTEN_SHIPPING_SEK` / `EXPERTEN_FREE_FROM_SEK` | `69` / `739` | 3DExpertens uppskattade frakt och gräns för fri frakt |
 | `BAMBU_BULK_TYPES` | `PLA Basic,PLA Matte,PETG HF,PETG Translucent,ABS,PLA Silk+` | Filamenttyper som omfattas av mängdrabatten |
 | `TRUSTED_PROXIES` | loopback | Omvända proxyer vars `X-Forwarded-*` litas på. Ange proxyns adress som `/32`. |
 | `COOKIE_SECURE` | `auto` | `true` = alltid Secure-cookie, `auto` = när webbläsaren använder https |
