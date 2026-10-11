@@ -6,5 +6,6 @@
 !prices.py
 !katalog/
 !assets/
+!docker/
 **/__pycache__
 **/*.pyc

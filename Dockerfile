@@ -8,7 +8,6 @@
 
 ARG PYTHON_IMAGE=python:3.13-alpine
 ARG NODE_IMAGE=node:22-alpine
-ARG RUNTIME_IMAGE=nginxinc/nginx-unprivileged:1.29-alpine
 
 ############################
 # 1. Data (valfri ombyggnad)
@@ -41,32 +40,35 @@ RUN set -eu; \
     done
 
 ############################
-# 3. Runtime: nginx + Python (endast standardbiblioteket), icke-root
+# 3. Runtime: en Python-process (endast standardbiblioteket), icke-root
 ############################
-FROM ${RUNTIME_IMAGE} AS runtime
+FROM ${PYTHON_IMAGE} AS runtime
 LABEL org.opencontainers.image.title="Bambu filamentkatalog" \
       org.opencontainers.image.description="Färg- och priskatalog för Bambu Lab-filament med inloggning och nattlig prisuppdatering" \
-      org.opencontainers.image.source="https://github.com/BraXhn/Bambu-filamentkatalog" \
-      org.opencontainers.image.licenses="UNLICENSED"
-USER root
-RUN apk add --no-cache python3 tzdata tini \
- && rm -f /etc/nginx/conf.d/default.conf \
- && mkdir -p /data && chown 101:101 /data
+      org.opencontainers.image.source="https://github.com/BraXhn/Bambu-filamentkatalog"
+RUN apk add --no-cache tini tzdata su-exec \
+ && mkdir -p /data && chown 99:100 /data
 WORKDIR /app
 COPY --chown=root:root katalog/ /app/katalog/
 COPY --chown=root:root assets/ /app/assets/
+COPY --chown=root:root --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chown=root:root --from=assets /site/ /app/www/
-RUN python3 -m compileall -q /app/katalog
+RUN python -m compileall -q /app/katalog && chmod -R a+rX /app
 ENV KATALOG_APP_DIR=/app \
     KATALOG_DATA_DIR=/data \
     TZ=Europe/Stockholm \
     PRICE_UPDATE_TIME=01:00 \
+    PORT=8080 \
+    HOME=/tmp \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-USER 101:101
+    PYTHONDONTWRITEBYTECODE=1 \
+    PUID=99 \
+    PGID=100
+# Appen kör som PUID:PGID (99:100 = nobody:users, som Unraid använder för appdata).
+# entrypoint.sh startar som root enbart för att rätta ägaren på /data och släpper sedan rättigheterna.
 VOLUME ["/data"]
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["python3", "-m", "katalog", "serve"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+CMD ["python", "-m", "katalog", "serve"]

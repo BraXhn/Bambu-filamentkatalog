@@ -12,10 +12,12 @@
   <Category>Tools: HomeAutomation:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <Icon>https://raw.githubusercontent.com/BraXhn/Bambu-filamentkatalog/main/assets/icon.png</Icon>
-  <ExtraParams>--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges --memory 256m --pids-limit 256</ExtraParams>
+  <ExtraParams>--read-only --tmpfs /tmp --cap-drop ALL --cap-add CHOWN --cap-add SETUID --cap-add SETGID --cap-add DAC_OVERRIDE --security-opt no-new-privileges</ExtraParams>
   <PostArgs/>
-  <Config Name="WebUI-port" Target="8080" Default="8765" Mode="tcp" Description="Porten du öppnar katalogen på (http://SERVER:PORT). Har containern egen IP (br0/Custom) gäller i stället alltid port 8080 på containerns IP." Type="Port" Display="always" Required="true" Mask="false">8765</Config>
-  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/bambu-filamentkatalog" Mode="rw" Description="Användare, inloggningar och priser. Mappen måste ägas av 101:101 (se README)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bambu-filamentkatalog</Config>
+  <Config Name="WebUI-port" Target="8080" Default="8765" Mode="tcp" Description="Nätverkstyp Bridge: porten du öppnar katalogen på (http://UNRAID-IP:PORT). Egen IP (Custom): alltid port 8080 på containerns IP." Type="Port" Display="always" Required="true" Mask="false">8765</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/bambu-filamentkatalog" Mode="rw" Description="Användare, inloggningar och priser. Skapas och får rätt ägare automatiskt." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bambu-filamentkatalog</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Användar-id som appen kör som (99 = nobody)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Grupp-id (100 = users)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
   <Config Name="Tidszon" Target="TZ" Default="Europe/Stockholm" Mode="" Description="Tidszon för schemat." Type="Variable" Display="always" Required="false" Mask="false">Europe/Stockholm</Config>
   <Config Name="Prisuppdatering (klockslag)" Target="PRICE_UPDATE_TIME" Default="01:00" Mode="" Description="När priserna uppdateras varje natt (HH:MM). Tomt = av." Type="Variable" Display="always" Required="false" Mask="false">01:00</Config>
   <Config Name="Bambu-synk (timmar)" Target="BAMBU_SYNC_HOURS" Default="6" Mode="" Description="Hur ofta kopplade Bambu Lab-konton synkas. 0 = bara manuellt." Type="Variable" Display="advanced" Required="false" Mask="false">6</Config>

@@ -28,8 +28,6 @@ CATALOG_PATH = SEED_DIR / 'data.json'
 ASSETS_DIR = APP_DIR / 'assets'
 
 LISTEN_PORT = _int('PORT', 8080)
-APP_PORT = _int('KATALOG_APP_PORT', 9000)
-START_NGINX = _bool('KATALOG_START_NGINX', True)
 
 SITE_NAME = os.environ.get('SITE_NAME', 'Bambu filamentkatalog')
 TIMEZONE = os.environ.get('TZ', 'Europe/Stockholm') or 'Europe/Stockholm'
