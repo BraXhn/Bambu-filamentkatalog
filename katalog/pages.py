@@ -2,6 +2,7 @@
 import datetime
 import json
 import re
+import urllib.parse
 from html import escape as e
 from zoneinfo import ZoneInfo
 
@@ -35,7 +36,7 @@ def fmt_rel(ts):
 def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=None):
     nav = ''
     if user:
-        items = [('/', 'Katalog', 'katalog'), ('/konto', 'Mitt konto', 'konto')]
+        items = [('/', 'Katalog', 'katalog'), ('/inkopslista', 'Inköpslista', 'inkop'), ('/konto', 'Mitt konto', 'konto')]
         if user['is_admin']:
             items.append(('/admin', 'Administration', 'admin'))
         links = ''.join(f'<a href="{h}"{" aria-current=page" if k == active else ""}>{t}</a>' for h, t, k in items)
@@ -315,3 +316,87 @@ def bambu_section(csrf, link, pending, catalog_names, msg_kind='', msg=''):
 <form method="post" action="/konto/bambu/koppla-fran">{h}<button class="btn danger" type="submit">Koppla från</button></form></div>"""
     return (f'<section class="card" id="bambu"><h2>Bambu Lab-konto</h2>{intro}{out}{banner}{stats}{relink}{actions}'
             f'{table}{utable}{note}</section>')
+
+
+# ---------- inköpslista ----------
+def _kr(n):
+    return f'{round(n):,} kr'.replace(',', ' ')
+
+
+def _safe_href(url):
+    return e(url) if str(url or '').startswith('https://') else '#'
+
+
+def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    if not items:
+        body = f"""<h1>Inköpslista</h1><p class="lead">Lägg till filament med knappen <b>+ Inköpslista</b> på korten i katalogen.
+Här ser du sedan var varje filament är billigast att köpa och vad allt kostar.</p>{message(msg_kind, e(msg))}
+<p><a class="btn" href="/">Till katalogen</a></p>"""
+        return layout('Inköpslista', body, user, csrf, 'inkop')
+    t = plan['totals']
+    est = ' (uppskattad frakt ingår)' if t['estimated'] else ''
+    when = ''
+    if checked_at:
+        try:
+            when = datetime.datetime.fromisoformat(checked_at.replace('Z', '+00:00')).astimezone(TZ).strftime('%Y-%m-%d %H:%M')
+        except ValueError:
+            pass
+    summary = f"""<section class="card"><div class="stats">
+<div class="stat"><span>Uppskattat totalt</span><strong style="font-size:24px">{_kr(t['total'])}</strong></div>
+<div class="stat"><span>Varor</span><strong>{_kr(t['goods'])}</strong></div>
+<div class="stat"><span>Frakt{' (delvis uppskattad)' if t['estimated'] else ''}</span><strong>{_kr(t['shipping'])}</strong></div>
+<div class="stat"><span>Köparskydd (Tradera)</span><strong>{_kr(t['fee'])}</strong></div></div>
+<p class="sub" style="margin:0">{t['units']} {'spole' if t['units'] == 1 else 'spolar'} hos {len(plan['shops'])} {'butik/säljare' if len(plan['shops']) == 1 else 'butiker/säljare'}{est}.
+Butiker väljs så att totalen inklusive frakt blir så låg som möjligt, t.ex. genom att samla köp för fri frakt.
+Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager innan du betalar.</p></section>"""
+    shops = ''
+    for sh in plan['shops']:
+        rows = ''
+        for l in sh['lines']:
+            o, d = l['offer'], l['item'] or {}
+            name = f"{d.get('type', l['key'].split('|')[0])} · {d.get('name', l['key'].split('|')[-1])}"
+            disc = f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else ''
+            rows += (f'<tr><td><b>{e(name)}</b>{disc}<br><span class="muted" style="font-size:12px">{e(o.get("title", ""))}</span></td>'
+                     f'<td class="hide-sm">{e(o.get("pack", ""))} {o.get("weight") or "?"} g</td>'
+                     f'<td class="right">{l["qty"]} × {_kr(o["price"])}</td><td class="right"><b>{_kr(o["price"] * l["qty"])}</b></td>'
+                     f'<td class="right"><a class="btn small" href="{_safe_href(o.get("url"))}" target="_blank" rel="noopener">Köp här ↗</a></td></tr>')
+        ship = f'{_kr(sh["shipping"])}{" (uppskattad)" if sh["estimated"] else ""}'
+        fee = f' · köparskydd {_kr(sh["fee"])}' if sh['fee'] else ''
+        home = f' <a href="{_safe_href(sh["home"])}" target="_blank" rel="noopener" style="font-size:13px">Till butiken ↗</a>' \
+            if sh['home'] and not sh['shop'].startswith('Tradera') else ''
+        shops += f"""<section class="card"><div class="row" style="justify-content:space-between;align-items:baseline">
+<h2>{e(sh['shop'])}{home}</h2><strong style="font-size:18px">{_kr(sh['total'])}</strong></div>
+<p class="sub">Varor {_kr(sh['goods'])} · frakt {ship}{fee}. {e(sh['note'])}</p>
+<div class="tablewrap"><table><thead><tr><th>Filament</th><th class="hide-sm">Förpackning</th><th class="right">Antal</th>
+<th class="right">Summa</th><th></th></tr></thead><tbody>{rows}</tbody></table></div></section>"""
+    missing = ''
+    if plan['missing']:
+        mrows = ''
+        for m in plan['missing']:
+            d = m['item'] or {}
+            q = urllib.parse.quote(f"Bambu Lab {d.get('type', '')} {d.get('name', '')}".strip())
+            mrows += (f'<li><b>{e(d.get("type", m["key"]))} · {e(d.get("name", ""))}</b> ({m["qty"]} st'
+                      f'{", " + e(m["pack"]) if m["pack"] != "any" else ""}) – '
+                      f'<a href="https://www.prisjakt.nu/search?search={q}" target="_blank" rel="noopener">sök på Prisjakt ↗</a> · '
+                      f'<a href="https://www.tradera.com/search?q={q}" target="_blank" rel="noopener">Tradera ↗</a></li>')
+        missing = (f'<section class="card"><h2>Inget köpbart erbjudande just nu</h2><p class="sub">Ingår inte i totalen.</p>'
+                   f'<ul style="margin:0;padding-left:18px;line-height:1.9">{mrows}</ul></section>')
+    edit_rows = ''
+    for key, qty, pack in items:
+        label = names.get(key, key.split('|')[-1])
+        typ = key.split('|')[0]
+        opts = ''.join(f'<option value="{v}"{" selected" if v == pack else ""}>{t}</option>'
+                       for v, t in (('any', 'Spole eller refill'), ('Spole', 'Spole'), ('Refill', 'Refill')))
+        edit_rows += f"""<tr class="cart-row"><td><b>{e(typ)} · {e(label)}</b></td><td>
+<form method="post" action="/inkopslista/rad" class="row cart-edit">{h}<input type="hidden" name="key" value="{e(key)}">
+<input type="number" name="qty" value="{qty}" min="0" max="50" aria-label="Antal" style="width:74px;padding:8px">
+<select name="pack" aria-label="Förpackning" style="width:auto;padding:8px">{opts}</select>
+<button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
+<button class="btn danger small" type="submit" name="do" value="ta-bort">Ta bort</button></form></td></tr>"""
+    edit = f"""<section class="card"><h2>Ändra listan</h2><p class="sub">Antal 0 tar bort raden. Välj förpackning om du bara vill ha spole eller refill.</p>
+<div class="tablewrap"><table><tbody>{edit_rows}</tbody></table></div>
+<form method="post" action="/inkopslista/tom" class="mt">{h}<button class="btn danger small" type="submit">Töm listan</button></form></section>"""
+    body = (f'<h1>Inköpslista</h1><p class="lead">Var du bör köpa varje filament och vad det kostar totalt.</p>'
+            f'{message(msg_kind, e(msg))}{summary}{shops}{missing}{edit}')
+    return layout('Inköpslista', body, user, csrf, 'inkop')

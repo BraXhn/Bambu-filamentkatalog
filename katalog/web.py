@@ -12,7 +12,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import bambu, config, db, pages, scheduler, security
+from . import bambu, cart, config, db, pages, scheduler, security
 from .static import store
 
 COOKIE = 'katalog_sid'
@@ -51,7 +51,7 @@ CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-
        "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
        "frame-ancestors 'none'")
 PUBLIC = {'/healthz', '/robots.txt', '/favicon.ico'}
-APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api)(/|$)')
+APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista)(/|$)')
 STARTUP_ERROR = None   # sätts om datamappen inte går att använda; visas då på alla sidor
 
 
@@ -74,6 +74,13 @@ def _catalog_names():
         return _names_cache['names']
     except (OSError, ValueError):
         return {}
+
+
+def _catalog():
+    try:
+        return json.loads(config.CATALOG_PATH.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
 
 
 def _bambu_summary(user_id):
@@ -429,6 +436,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_me()
             if path == '/api/owned':
                 return self.api_owned_get()
+            if path == '/api/cart':
+                return self.api_cart_get()
             u = self.user()
             if not u:
                 if APP_PATH.match(path) or store.get(path):
@@ -439,6 +448,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.redirect('/konto')
             if path == '/konto':
                 return self.get_account()
+            if path == '/inkopslista':
+                return self.get_cart()
             if path == '/admin':
                 return self.get_admin()
             m = re.fullmatch(r'/admin/anvandare/(\d+)/ta-bort', path)
@@ -508,6 +519,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect('/konto')
             if path.startswith('/konto/bambu/'):
                 return self.bambu_post(path)
+            if path.startswith('/inkopslista/'):
+                return self.cart_post(path)
             if path.startswith('/admin'):
                 return self.admin_post(path)
             self.not_found()
@@ -525,6 +538,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if urllib.parse.urlsplit(self.path).path == '/api/owned':
                 return self.api_owned_put()
+            if urllib.parse.urlsplit(self.path).path == '/api/cart':
+                return self.api_cart_put()
             self.not_found()
         except Exception as ex:  # noqa: BLE001
             self.server_error(ex)
@@ -863,6 +878,64 @@ class Handler(BaseHTTPRequestHandler):
         print(f'[bambu] användare {uid} kopplade Bambu-kontot', flush=True)
         ok, msg = bambu.sync_user(uid)
         return self.get_account(bkind='ok' if ok else 'err', bmsg=('Kontot är kopplat. ' if ok else 'Kontot är kopplat, men ') + msg)
+
+    # ---------- inköpslista ----------
+    def get_cart(self, kind='', msg='', code=200):
+        u = self.user()
+        items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(u['id'])]
+        offers, checked = cart.load_offers()
+        catalog = _catalog()
+        plan = cart.plan(items, offers, catalog)
+        self.send(code, pages.shopping_list(u, self.session()['csrf'], plan, items, _catalog_names(), checked, kind, msg))
+
+    def cart_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        if path == '/inkopslista/tom':
+            db.clear_cart(uid)
+            return self.get_cart('ok', 'Inköpslistan är tömd.')
+        if path != '/inkopslista/rad':
+            return self.not_found()
+        key = f.get('key', '')
+        if key not in _catalog_names():
+            return self.get_cart('err', 'Okänt filament.', 400)
+        pack = f.get('pack') if f.get('pack') in ('any', 'Spole', 'Refill') else 'any'
+        try:
+            qty = max(0, min(db.CART_MAX_QTY, int(f.get('qty', '1'))))
+        except ValueError:
+            qty = 1
+        if f.get('do') == 'ta-bort':
+            qty = 0
+        db.set_cart_item(uid, key, qty, pack)
+        return self.redirect('/inkopslista')
+
+    def api_cart_get(self):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        self.json(200, {'items': [{'key': r['key'], 'qty': r['qty'], 'pack': r['pack']} for r in db.get_cart(u['id'])]})
+
+    def api_cart_put(self):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        if not self.check_csrf():
+            return self.json(403, {'error': 'ogiltig token'})
+        if not (self.headers.get('Content-Type') or '').startswith('application/json'):
+            return self.json(415, {'error': 'JSON krävs'})
+        try:
+            data = json.loads(self.read_body(4096))
+            key, qty = data['key'], int(data.get('qty', 1))
+            pack = data.get('pack', 'any')
+            if not isinstance(key, str) or key not in _catalog_names() or pack not in ('any', 'Spole', 'Refill'):
+                raise ValueError
+        except (ValueError, KeyError, TypeError):
+            return self.json(400, {'error': 'ogiltig data'})
+        if not db.set_cart_item(u['id'], key, max(0, min(db.CART_MAX_QTY, qty)), pack):
+            return self.json(409, {'error': 'Inköpslistan är full'})
+        self.api_cart_get()
 
     # ---------- API ----------
     def api_me(self):

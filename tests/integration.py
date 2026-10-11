@@ -108,6 +108,11 @@ check(s == 200, 'spara "Jag har" på kontot')
 s, h, b = req(op, '/api/owned', json.dumps({'items': []}).encode(), 'PUT',
               {'Content-Type': 'application/json', 'X-CSRF-Token': me.get('csrf', ''), 'Origin': 'https://evil.example'})
 check(s == 403, 'API nekar annan origin')
+s, h, b = req(op, '/api/cart', json.dumps({'key': 'PLA Basic|10101', 'qty': 2}).encode(), 'PUT',
+              {'Content-Type': 'application/json', 'X-CSRF-Token': me.get('csrf', '')})
+check(s == 200 and json.loads(b)['items'][0]['qty'] == 2, 'lägg i inköpslistan')
+s, h, b = req(op, '/inkopslista')
+check(s == 200 and b'Uppskattat totalt' in b and b'K\xc3\xb6p h\xc3\xa4r' in b, 'inköpslistan visar total och köplänkar')
 s, h, b = req(op, '/admin')
 check(s == 200 and b'Prisuppdatering' in b and b'ci-admin' in b, 'adminsidan visas')
 t = csrf(b.decode())
