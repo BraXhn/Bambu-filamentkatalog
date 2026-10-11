@@ -101,6 +101,7 @@ Skydd som är inbyggt:
   - Priserna är i euro och räknas om till kronor med ECB:s dagskurs.
   - Butiken svarar bara europeiska besökare. Det fungerar från en server i Sverige, men inte från GitHub Actions.
   - Frakten visas först i deras kassa. Inköpslistan räknar med 99 kr; justera med `BAMBU_SHIPPING_SEK` och `BAMBU_FREE_FROM_SEK`.
+  - **Mängdrabatt räknas in:** 4+ rullar (1 kg) av samma filamenttyp kostar 18,99 € per spole / 15,99 € per refill, 6+ rullar 16,99 € / 13,99 € (PLA Basic, PLA Matte, PETG HF, PETG Translucent, ABS, PLA Silk+). Färger och spole/refill räknas ihop per typ. Inköpslistan visar rabatten tydligt per butik och hur många rullar som saknas till nästa nivå. Ändra villkoren med `BAMBU_BULK_TIERS` och `BAMBU_BULK_TYPES` om Bambu ändrar dem.
 - **Tradera:** sökningen *bambu lab filament* läses. Bara aktiva annonser från svenska säljare som matchar en färg i katalogen tas med. Annonssidan läses för köp nu-pris, frakt, obligatoriskt köparskydd, skick, vikt och refill/spole.
 - Om en källa inte svarar, eller plötsligt ger noll träffar när den tidigare gav många, behålls dess tidigare priser. Statusen visas under Administration.
 - En körning tar ungefär 10–15 minuter, eftersom anropen sprids ut för att inte belasta butikerna.
@@ -140,6 +141,8 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 | `PRICE_UPDATE_ON_START` | `false` | Uppdatera direkt när containern startar |
 | `PRICE_SOURCES` | `3djake,3dprima,tradera,bambulab` | Vilka källor som används |
 | `BAMBU_SHIPPING_SEK` / `BAMBU_FREE_FROM_SEK` | `99` / – | Bambu Lab EU:s frakt och gräns för fri frakt i inköpslistan |
+| `BAMBU_BULK_TIERS` | `4:18.99/15.99,6:16.99/13.99` | Bambu Lab EU:s mängdrabatt: `antal:spole€/refill€`, tomt = av |
+| `BAMBU_BULK_TYPES` | `PLA Basic,PLA Matte,PETG HF,PETG Translucent,ABS,PLA Silk+` | Filamenttyper som omfattas av mängdrabatten |
 | `TRUSTED_PROXIES` | loopback | Omvända proxyer vars `X-Forwarded-*` litas på. Ange proxyns adress som `/32`. |
 | `COOKIE_SECURE` | `auto` | `true` = alltid Secure-cookie, `auto` = när webbläsaren använder https |
 | `ALLOWED_HOSTS` | – | Tillåtna värdnamn, kommaseparerade (t.ex. `katalog.example.se`). Tomt = alla. |

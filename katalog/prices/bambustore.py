@@ -95,7 +95,7 @@ def _offer(by_code, product_title, opts, amount, compare, rate, url, currency, n
         note = (f'Pris {amount:.2f} {sym} ≈ {price} kr (kurs {factor:.2f}). '.replace('.', ',') + 'I lager enligt butiken.')
     return dict(key=d['type'] + '|' + (d['code'] or d['name']), shop=SHOP,
                 title=f'Bambu Lab {product_title} {color} · {size} · {pack}', url=url,
-                price=price, listPrice=list_price, shipping=None, fee=0, weight=weight, pack=pack, kind='fixed',
+                price=price, listPrice=list_price, fx=round(factor, 4), shipping=None, fee=0, weight=weight, pack=pack, kind='fixed',
                 condition='Ny', endAt=None,
                 shippingNote='Frakt visas i kassan.' + ('' if currency == 'SEK' else ' Betalas i euro.'),
                 sourceNote=note, checkedAt=now)

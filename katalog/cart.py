@@ -4,6 +4,8 @@ Fraktmodell (uppskattning):
 - 3DJake: 115 kr per order, fri frakt från 1 099 kr.
 - 3D Prima: frakt visas först i kassan; uppskattas till 79 kr, fri frakt från 1 000 kr.
 - Tradera: en frakt per säljare (samfrakt antas, högsta angivna frakten bland varorna) + köparskydd per köp.
+- Bambu Lab EU: frakt uppskattas (BAMBU_SHIPPING_SEK). Mängdrabatten (t.ex. 4+ och 6+ rullar av samma
+  filamenttyp, färger får blandas) räknas in: rullarna får nivåns pris per rulle om det är lägre än dagspriset.
 Tradera-annonser räknas som en vara per annons; butiker har obegränsat antal.
 """
 import datetime
@@ -44,9 +46,62 @@ def _group(o):
     return o['shop']
 
 
+BULK_SHOP = 'Bambu Lab EU'
+
+
+def bulk_discount(group, lines):
+    """Bambu Lab EU:s mängdrabatt. Returnerar (rabatt_kr, detaljer, {id(erbjudande): pris_per_rulle}).
+
+    Rullar (1 kg) av samma filamenttyp räknas ihop oavsett färg och förpackning; nivån med flest rullar som
+    uppnås ger sitt pris per rulle (euro omräknat med samma kurs som erbjudandet). Dagspriset används om det
+    redan är lägre.
+    """
+    tiers = config.BAMBU_BULK_TIERS
+    if group != BULK_SHOP or not tiers:
+        return 0, [], {}
+    by_type = defaultdict(list)
+    for o in lines:
+        typ = o['key'].split('|')[0]
+        if typ in config.BAMBU_BULK_TYPES and o.get('weight') == 1000 and o.get('fx'):
+            by_type[typ].append(o)
+    total, details, unit = 0, [], {}
+    for typ, offers in sorted(by_type.items()):
+        n = len(offers)
+        reached = [t for t in tiers if n >= t[0]]
+        upcoming = next((t for t in tiers if n < t[0]), None)
+        info = {'type': typ, 'rolls': n, 'tier': None, 'saved': 0, 'prices': {}, 'next': None}
+        fx = offers[0]['fx']
+        if upcoming:
+            info['next'] = {'min': upcoming[0], 'missing': upcoming[0] - n,
+                            'prices': {k: round(v * fx) for k, v in upcoming[1].items() if v}}
+        if reached:
+            min_n, eur = reached[-1]
+            info['tier'] = min_n
+            info['prices'] = {k: (v, round(v * fx)) for k, v in eur.items() if v}
+            for o in offers:
+                tier_eur = eur.get(o.get('pack'))
+                if not tier_eur:
+                    continue
+                price = min(o['price'], round(tier_eur * o['fx']))
+                unit[id(o)] = price
+                info['saved'] += o['price'] - price
+        total += info['saved']
+        details.append(info)
+    return total, details, unit
+
+
 def shop_cost(group, lines):
-    """(varor, frakt, köparskydd, fraktnotering, frakt_är_uppskattad) för en butik/säljare."""
-    goods = sum(o['price'] for o in lines)
+    """(varor, frakt, köparskydd, fraktnotering, frakt_är_uppskattad, mängdrabatt) för en butik/säljare.
+
+    varor är före mängdrabatt; att betala = varor - mängdrabatt + frakt + köparskydd.
+    """
+    disc = bulk_discount(group, lines)[0]
+    gross = sum(o['price'] for o in lines)
+    r = _shop_cost(group, lines, gross - disc)
+    return (gross,) + r[1:] + (disc,)
+
+
+def _shop_cost(group, lines, goods):
     fee = sum(o.get('fee') or 0 for o in lines)
     rule = SHOPS.get(group)
     if rule:
@@ -80,8 +135,8 @@ def _total(assign):
             groups[_group(o)].append(o)
     t = 0
     for g, lines in groups.items():
-        goods, ship, fee, _, _ = shop_cost(g, lines)
-        t += goods + ship + fee
+        goods, ship, fee, _, _, disc = shop_cost(g, lines)
+        t += goods - disc + ship + fee
     return t
 
 
@@ -133,12 +188,18 @@ def plan(items, offers, catalog, now=None):
     best = single_moves(assign, _total(assign))
     # Samlingsdrag: prova att lägga allt en butik har hos den butiken (fri frakt/samfrakt kräver flera varor
     # på en gång, vilket enkelflyttar aldrig hittar). Förbättra sedan vidare med enkelflyttar.
+    # För Bambu Lab provas också att samla en filamenttyp i taget (mängdrabatten gäller per typ).
     shops_all = sorted({_group(o) for c in cands for o in c})
+    trials = [(g, None) for g in shops_all]
+    if BULK_SHOP in shops_all:
+        trials += [(BULK_SHOP, t) for t in sorted({k.split('|')[0] for k, _ in units})]
     for _ in range(10):
         improved = False
-        for g in shops_all:
+        for g, typ in trials:
             trial = list(assign)
             for i, c in enumerate(cands):
+                if typ and units[i][0].split('|')[0] != typ:
+                    continue
                 for o in sorted((o for o in c if _group(o) == g), key=lambda o: o['price']):
                     prev = trial[i]
                     trial[i] = o
@@ -167,18 +228,24 @@ def plan(items, offers, catalog, now=None):
             groups[_group(o)].append(line)
         lines_by_offer[ident]['qty'] += 1
     shops = []
-    totals = {'goods': 0, 'shipping': 0, 'fee': 0, 'total': 0, 'estimated': False, 'units': 0}
+    totals = {'goods': 0, 'discount': 0, 'shipping': 0, 'fee': 0, 'total': 0, 'estimated': False, 'units': 0}
     for g, lines in groups.items():
         flat = [l['offer'] for l in lines for _ in range(l['qty'])]
-        goods, ship, fee, note, est = shop_cost(g, flat)
+        goods, ship, fee, note, est, disc = shop_cost(g, flat)
+        _, bulk, unit = bulk_discount(g, flat)
+        for l in lines:
+            if id(l['offer']) in unit and unit[id(l['offer'])] < l['offer']['price']:
+                l['bulkPrice'] = unit[id(l['offer'])]
         rule = SHOPS.get(g)
         shops.append({'shop': g, 'lines': lines, 'goods': goods, 'shipping': ship, 'fee': fee, 'note': note,
-                      'estimated': est, 'total': goods + ship + fee,
+                      'discount': disc, 'bulk': bulk,
+                      'estimated': est, 'total': goods - disc + ship + fee,
                       'home': rule['home'] if rule else (lines[0]['offer']['url'] if g.startswith('Tradera') else '')})
         totals['goods'] += goods
+        totals['discount'] += disc
         totals['shipping'] += ship
         totals['fee'] += fee
-        totals['total'] += goods + ship + fee
+        totals['total'] += goods - disc + ship + fee
         totals['estimated'] |= est
         totals['units'] += len(flat)
     shops.sort(key=lambda s: -s['total'])
