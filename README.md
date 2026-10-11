@@ -96,13 +96,18 @@ Skydd som är inbyggt:
 - Körs varje natt kl. 01.00 svensk tid (`PRICE_UPDATE_TIME`, `TZ`), med sommar- och vintertid. En administratör kan också starta den med **Uppdatera priser nu**.
 - **3DJake:** produktsidorna läses för pris och lagerstatus per variant (Spole/Refill). Nya färger hittas automatiskt via länkar mellan produkterna.
 - **3D Prima:** kända produktsidor läses för pris och lagerstatus.
+- **Bambu Lab EU** (`eu.store.bambulab.com`):
+  - Butikens produkt-API läses, med pris, ordinarie pris och lagerstatus per färg, spole/refill och storlek.
+  - Priserna är i euro och räknas om till kronor med ECB:s dagskurs.
+  - Butiken svarar bara europeiska besökare. Det fungerar från en server i Sverige, men inte från GitHub Actions.
+  - Frakten visas först i deras kassa. Inköpslistan räknar med 99 kr; justera med `BAMBU_SHIPPING_SEK` och `BAMBU_FREE_FROM_SEK`.
 - **Tradera:** sökningen *bambu lab filament* läses. Bara aktiva annonser från svenska säljare som matchar en färg i katalogen tas med. Annonssidan läses för köp nu-pris, frakt, obligatoriskt köparskydd, skick, vikt och refill/spole.
 - Om en källa inte svarar, eller plötsligt ger noll träffar när den tidigare gav många, behålls dess tidigare priser. Statusen visas under Administration.
 - En körning tar ungefär 10–15 minuter, eftersom anropen sprids ut för att inte belasta butikerna.
 - Flödet *Kontrollera prishämtning* i GitHub Actions kör hämtningen varje måndag mot de riktiga sidorna. Det varnar om en butik har ändrat sitt sidformat.
 
 **Ordinarie pris och rabatt:**
-- I första hand används butikens egen uppgift: Traderas pris före rabatt, 3D Primas listpris, eller ett överstruket pris hos 3DJake.
+- I första hand används butikens egen uppgift: Traderas pris före rabatt, 3D Primas listpris, Bambu Labs jämförpris (`compare_at_price`), eller ett överstruket pris hos 3DJake.
 - Annars används det typiska priset (medianen) för samma erbjudande de senaste 30 dagarna. Det kräver minst 7 dagars historik, så sådana rabatter syns först efter ungefär en vecka.
 - Bara rabatter på minst 5 % visas.
 - Prishistoriken sparas i `/data/state/price_history.json`.
@@ -133,7 +138,8 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 | `TZ` | `Europe/Stockholm` | Tidszon för schemat och visade tider |
 | `PRICE_UPDATE_TIME` | `01:00` | När priserna uppdateras. Tom stänger av schemat. |
 | `PRICE_UPDATE_ON_START` | `false` | Uppdatera direkt när containern startar |
-| `PRICE_SOURCES` | `3djake,3dprima,tradera` | Vilka källor som används |
+| `PRICE_SOURCES` | `3djake,3dprima,tradera,bambulab` | Vilka källor som används |
+| `BAMBU_SHIPPING_SEK` / `BAMBU_FREE_FROM_SEK` | `99` / – | Bambu Lab EU:s frakt och gräns för fri frakt i inköpslistan |
 | `TRUSTED_PROXIES` | loopback | Omvända proxyer vars `X-Forwarded-*` litas på. Ange proxyns adress som `/32`. |
 | `COOKIE_SECURE` | `auto` | `true` = alltid Secure-cookie, `auto` = när webbläsaren använder https |
 | `ALLOWED_HOSTS` | – | Tillåtna värdnamn, kommaseparerade (t.ex. `katalog.example.se`). Tomt = alla. |

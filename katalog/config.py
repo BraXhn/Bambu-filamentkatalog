@@ -65,8 +65,12 @@ ALLOWED_HOSTS = {h.strip().lower() for h in os.environ.get('ALLOWED_HOSTS', '').
 # Bambu Lab-synk: hur ofta kopplade konton synkas automatiskt (timmar, 0 = bara manuellt)
 BAMBU_SYNC_HOURS = float(os.environ.get('BAMBU_SYNC_HOURS', '6') or 0)
 
+# Bambu Lab EU-butikens frakt (kr) och gräns för fri frakt (kr) i inköpslistan; justera om du vet bättre.
+BAMBU_SHIPPING_SEK = _int('BAMBU_SHIPPING_SEK', 99)
+BAMBU_FREE_FROM_SEK = _int('BAMBU_FREE_FROM_SEK', 0)
+
 # Prishämtning
-PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera').split(',') if s.strip()]
+PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera,bambulab').split(',') if s.strip()]
 HTTP_DELAY = float(os.environ.get('PRICE_HTTP_DELAY', '1.2'))   # sekunder mellan anrop per sajt
 TRADERA_QUERIES = [q.strip() for q in os.environ.get('TRADERA_QUERIES', 'bambu lab filament').split(';') if q.strip()]
 TRADERA_MAX_PAGES = _int('TRADERA_MAX_PAGES', 8)

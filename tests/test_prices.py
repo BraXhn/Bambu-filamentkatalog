@@ -11,7 +11,7 @@ R = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(R))
 
 from katalog import config  # noqa: E402
-from katalog.prices import jake, prima, tradera, update  # noqa: E402
+from katalog.prices import bambustore, jake, prima, tradera, update  # noqa: E402
 from katalog.prices.common import FetchError, Matcher  # noqa: E402
 
 CATALOG = json.loads((R / 'dist' / 'data.json').read_text(encoding='utf-8'))
@@ -109,6 +109,26 @@ class Parsers(unittest.TestCase):
         self.assertEqual((o['key'], o['price'], o['fee'], o['shipping'], o['weight'], o['pack'], o['kind'], o['condition']),
                          ('PETG HF|33102', 419, 23, 74, 1000, 'Spole', 'fixed', 'Oanvänt'))
         self.assertNotIn(foreign['itemUrl'], http.calls)
+
+
+class BambuStore(unittest.TestCase):
+    def test_saved_eu_store_data(self):
+        products = json.loads((R / 'sources' / 'eu.json').read_text(encoding='utf-8'))['products']
+        offers = bambustore.products_to_offers(products, CATALOG, 11.0, 'NOW')
+        self.assertGreater(len(offers), 30)
+        o = next(x for x in offers if x['key'] == 'PLA Translucent|13612')
+        self.assertEqual((o['price'], o['pack'], o['weight'], o['shop']), (308, 'Spole', 1000, 'Bambu Lab EU'))
+        self.assertTrue(o['url'].startswith('https://eu.store.bambulab.com/products/pla-translucent?variant='))
+        self.assertTrue(all(x['listPrice'] is None or x['listPrice'] > x['price'] for x in offers))
+
+    def test_ecb_rate_and_redirect(self):
+        ecb = '<gesmes:Envelope xmlns:gesmes="x"><Cube><Cube time="2026-10-10"><Cube currency="SEK" rate="11.12"/></Cube></Cube></gesmes:Envelope>'
+        pages = {bambustore.ECB: ecb, bambustore.BASE + '/products.json?limit=250&page=1': FetchError('omdirigering till otillåten adress nekad')}
+        with self.assertRaises(FetchError) as cm:
+            bambustore.run(FakeHttp(pages), Matcher(CATALOG), {}, lambda m: None, 'NOW')
+        self.assertIn('europeiska', str(cm.exception))
+        state = {}
+        self.assertEqual(bambustore.eur_to_sek(FakeHttp({bambustore.ECB: ecb}), state, lambda m: None), 11.12)
 
 
 class UpdateMerge(unittest.TestCase):

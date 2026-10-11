@@ -15,6 +15,8 @@ from . import config
 SHOPS = {
     '3DJake Sverige': {'shipping': 115, 'free_from': 1099, 'home': 'https://www.3djake.se/bambu-lab'},
     '3D Prima Sverige': {'shipping': None, 'estimate': 79, 'free_from': 1000, 'home': 'https://www.3dprima.com/se/'},
+    'Bambu Lab EU': {'shipping': None, 'estimate': config.BAMBU_SHIPPING_SEK,
+                     'free_from': config.BAMBU_FREE_FROM_SEK or 10 ** 9, 'home': 'https://eu.store.bambulab.com/'},
 }
 UNKNOWN_SHIPPING_ESTIMATE = 79
 
@@ -52,8 +54,9 @@ def shop_cost(group, lines):
             return goods, 0, fee, f'Fri frakt från {rule["free_from"]:,} kr'.replace(',', ' '), False
         if rule['shipping'] is None:
             left = rule['free_from'] - goods
-            return goods, rule['estimate'], fee, (f'Frakt visas i kassan (uppskattad). Fri frakt från '
-                                                  f'{rule["free_from"]:,} kr – {left:,} kr kvar').replace(',', ' '), True
+            free = (f' Fri frakt från {rule["free_from"]:,} kr – {left:,} kr kvar'.replace(',', ' ')
+                    if rule['free_from'] < 10 ** 8 else '')
+            return goods, rule['estimate'], fee, f'Frakt visas i kassan (uppskattad).{free}', True
         left = rule['free_from'] - goods
         return goods, rule['shipping'], fee, (f'Fri frakt från {rule["free_from"]:,} kr – {left:,} kr kvar'
                                              ).replace(',', ' '), False
