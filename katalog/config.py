@@ -1,0 +1,109 @@
+"""Inställningar från miljövariabler. Alla har säkra standardvärden."""
+import ipaddress
+import os
+from pathlib import Path
+
+
+def _bool(name, default):
+    v = os.environ.get(name)
+    if v is None or v == '':
+        return default
+    return v.strip().lower() in ('1', 'true', 'yes', 'ja', 'on')
+
+
+def _int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+APP_DIR = Path(os.environ.get('KATALOG_APP_DIR', Path(__file__).resolve().parent.parent))
+DATA_DIR = Path(os.environ.get('KATALOG_DATA_DIR', '/data'))
+WWW_DIR = DATA_DIR / 'www'              # offers.json (+ .gz) som prisuppdateringen skriver
+STATE_DIR = DATA_DIR / 'state'          # prishämtarens tillstånd (kända produktlänkar m.m.)
+DB_PATH = DATA_DIR / 'katalog.db'
+SEED_DIR = Path(os.environ.get('KATALOG_SEED_DIR', APP_DIR / 'www'))  # webbappen + inbyggd data från imagen
+CATALOG_PATH = SEED_DIR / 'data.json'
+ASSETS_DIR = APP_DIR / 'assets'
+
+LISTEN_PORT = _int('PORT', 8080)
+
+SITE_NAME = os.environ.get('SITE_NAME', 'Bambu filamentkatalog')
+TIMEZONE = os.environ.get('TZ', 'Europe/Stockholm') or 'Europe/Stockholm'
+UPDATE_TIME = os.environ.get('PRICE_UPDATE_TIME', '01:00')   # HH:MM lokal tid, tom = av
+UPDATE_ON_START = _bool('PRICE_UPDATE_ON_START', False)
+
+# Sessioner
+SESSION_IDLE_DAYS = _int('SESSION_IDLE_DAYS', 14)
+SESSION_MAX_DAYS = _int('SESSION_MAX_DAYS', 60)
+# auto = Secure-flagga när förfrågan kom via https (X-Forwarded-Proto från omvänd proxy)
+COOKIE_SECURE = os.environ.get('COOKIE_SECURE', 'auto').lower()
+PASSWORD_MIN_LENGTH = max(8, _int('PASSWORD_MIN_LENGTH', 10))
+ALLOW_PUBLIC_SETUP = _bool('ALLOW_SETUP_WITHOUT_CODE', False)
+
+# Första administratör (valfritt). Annars visas en engångskod i loggen för /setup.
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', '').strip()
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
+
+# Omvända proxyer vars X-Forwarded-For/-Proto litas på. Standard: bara loopback.
+# Bakom t.ex. Nginx Proxy Manager/Traefik: ange proxyns adress eller nät, t.ex. 172.18.0.0/16.
+_DEFAULT_PROXIES = '127.0.0.1/32,::1/128'
+TRUSTED_PROXIES = []
+for part in os.environ.get('TRUSTED_PROXIES', _DEFAULT_PROXIES).split(','):
+    part = part.strip()
+    if not part:
+        continue
+    try:
+        TRUSTED_PROXIES.append(str(ipaddress.ip_network(part, strict=False)))
+    except ValueError:
+        print(f'[varning] Ogiltig TRUSTED_PROXIES-post ignoreras: {part}')
+
+# Tillåtna värdnamn (Host-rubrik), kommaseparerat. Tomt = alla. Skyddar mot DNS-rebinding.
+ALLOWED_HOSTS = {h.strip().lower() for h in os.environ.get('ALLOWED_HOSTS', '').split(',') if h.strip()}
+
+# Bambu Lab-synk: hur ofta kopplade konton synkas automatiskt (timmar, 0 = bara manuellt)
+BAMBU_SYNC_HOURS = float(os.environ.get('BAMBU_SYNC_HOURS', '6') or 0)
+
+# Bambu Lab EU-butikens frakt (kr) och gräns för fri frakt (kr) i inköpslistan; justera om du vet bättre.
+BAMBU_SHIPPING_SEK = _int('BAMBU_SHIPPING_SEK', 99)
+BAMBU_FREE_FROM_SEK = _int('BAMBU_FREE_FROM_SEK', 0)
+
+# 3DVerkstan och 3DExperten visar frakten först i kassan: uppskattad frakt och gräns för fri frakt (kr).
+VERKSTAN_SHIPPING_SEK = _int('VERKSTAN_SHIPPING_SEK', 79)
+VERKSTAN_FREE_FROM_SEK = _int('VERKSTAN_FREE_FROM_SEK', 0)
+EXPERTEN_SHIPPING_SEK = _int('EXPERTEN_SHIPPING_SEK', 69)
+EXPERTEN_FREE_FROM_SEK = _int('EXPERTEN_FREE_FROM_SEK', 739)
+
+# Bambu Lab EU:s mängdrabatt på filament (pris per rulle i euro, dras automatiskt i kassan).
+# Format: 'antal:spole/refill,...', tomt = ingen mängdrabatt. Rullar räknas per filamenttyp (färger blandas).
+# Källa: eu.store.bambulab.com/pages/bambu-filament (oktober 2026).
+BAMBU_BULK_TYPES = [t.strip() for t in os.environ.get(
+    'BAMBU_BULK_TYPES', 'PLA Basic,PLA Matte,PETG HF,PETG Translucent,ABS,PLA Silk+').split(',') if t.strip()]
+
+
+def _tiers(raw):
+    out = []
+    for part in raw.split(','):
+        try:
+            n, prices = part.split(':')
+            spool, refill = (float(x.replace(' ', '') or 0) for x in prices.split('/'))
+            if int(n) > 1:
+                out.append((int(n), {'Spole': spool, 'Refill': refill}))
+        except ValueError:
+            if part.strip():
+                print(f'[varning] Ogiltig BAMBU_BULK_TIERS-post ignoreras: {part}')
+    return sorted(out, key=lambda t: t[0])
+
+
+BAMBU_BULK_TIERS = _tiers(os.environ.get('BAMBU_BULK_TIERS', '4:18.99/15.99,6:16.99/13.99'))
+
+# Prishämtning
+PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera,bambulab,3dverkstan,3dexperten').split(',') if s.strip()]
+HTTP_DELAY = float(os.environ.get('PRICE_HTTP_DELAY', '1.2'))   # sekunder mellan anrop per sajt
+TRADERA_QUERIES = [q.strip() for q in os.environ.get('TRADERA_QUERIES', 'bambu lab filament').split(';') if q.strip()]
+TRADERA_MAX_PAGES = _int('TRADERA_MAX_PAGES', 8)
+JAKE_MAX_PAGES = _int('JAKE_MAX_PAGES', 400)
+USER_AGENT = os.environ.get(
+    'PRICE_USER_AGENT',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 BambuKatalog/1.0')
