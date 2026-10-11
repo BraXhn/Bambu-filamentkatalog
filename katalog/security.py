@@ -115,9 +115,11 @@ class RateLimiter:
             now = time.time()
             self._prune(key, now)
             self._hits.setdefault(key, []).append(now)
-            if len(self._hits) > 50000:  # skydd mot minnesöverbelastning: släng äldsta nycklarna
-                for k in sorted(self._hits, key=lambda k: self._hits[k][-1])[:10000]:
+            if len(self._hits) > 50000:  # skydd mot minnesöverbelastning
+                for k in [k for k, v in self._hits.items() if now - v[-1] >= self.window]:
                     del self._hits[k]
+                while len(self._hits) > 40000:   # släng äldsta nycklarna (insättningsordning)
+                    del self._hits[next(iter(self._hits))]
 
     def forgive(self, key):
         """Tar bort den senaste träffen (för lyckade försök)."""
@@ -133,6 +135,8 @@ class RateLimiter:
 
 # Max 20 misslyckade inloggningar per IP och kvart.
 ip_failures = RateLimiter(20, 15 * 60)
-# Konto låses 15 min efter 8 misslyckade försök i rad.
-ACCOUNT_MAX_FAILS = 8
+# Spärr per konto+adress: 8 misslyckade försök per kvart.
+pair_failures = RateLimiter(8, 15 * 60)
+# Global kontospärr (15 min) bara vid storskalig gissning från många adresser.
+ACCOUNT_MAX_FAILS = 50
 ACCOUNT_LOCK_SECONDS = 15 * 60

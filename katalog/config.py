@@ -59,6 +59,9 @@ for part in os.environ.get('TRUSTED_PROXIES', _DEFAULT_PROXIES).split(','):
     except ValueError:
         print(f'[varning] Ogiltig TRUSTED_PROXIES-post ignoreras: {part}')
 
+# Tillåtna värdnamn (Host-rubrik), kommaseparerat. Tomt = alla. Skyddar mot DNS-rebinding.
+ALLOWED_HOSTS = {h.strip().lower() for h in os.environ.get('ALLOWED_HOSTS', '').split(',') if h.strip()}
+
 # Bambu Lab-synk: hur ofta kopplade konton synkas automatiskt (timmar, 0 = bara manuellt)
 BAMBU_SYNC_HOURS = float(os.environ.get('BAMBU_SYNC_HOURS', '6') or 0)
 

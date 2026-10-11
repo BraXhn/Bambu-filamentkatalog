@@ -24,44 +24,54 @@ Imagen finns färdigbyggd för amd64 och arm64 som `ghcr.io/braxhn/bambu-filamen
 
 ### Unraid
 
-Det finns en färdig mall i [`unraid/bambu-filamentkatalog.xml`](unraid/bambu-filamentkatalog.xml). Kör detta i Unraids terminal:
+Det finns en färdig mall i [`unraid/bambu-filamentkatalog.xml`](unraid/bambu-filamentkatalog.xml). Hämta den med en rad i Unraids terminal:
 
 ```
-mkdir -p /mnt/user/appdata/bambu-filamentkatalog
-chown -R 101:101 /mnt/user/appdata/bambu-filamentkatalog
 wget -O /boot/config/plugins/dockerMan/templates-user/my-bambu-filamentkatalog.xml \
   https://raw.githubusercontent.com/BraXhn/Bambu-filamentkatalog/main/unraid/bambu-filamentkatalog.xml
 ```
 
 Gå sedan till **Docker → Add Container** och välj mallen *bambu-filamentkatalog* under **Template**. Klicka **Apply**.
 
-- **Delad IP** (nätverkstyp *Bridge*): katalogen nås på `http://<unraid-ip>:<porten i mallen>`.
-- **Egen IP** (nätverkstyp *Custom: br0* eller liknande): katalogen nås alltid på `http://<containerns-ip>:8080`. Portfältet används då inte.
-
-Containern kör som användare `101`, så datamappen måste ägas av `101:101`. Det gör `chown`-raden ovan. Containern säger till i loggen om den saknar skrivrätt.
+- **Rekommenderat: nätverkstyp *Bridge*.** Katalogen nås på `http://<unraid-ip>:<porten i mallen>` (standard 8765).
+- **Egen IP** (*Custom: br0* eller liknande): katalogen nås på `http://<containerns-ip>:8080`. Välj en adress utanför routerns DHCP-intervall, annars kan den krocka med en annan enhet. Använd hellre *ipvlan* än *macvlan* (*Settings → Docker*).
+- **Datamappen** (`/mnt/user/appdata/bambu-filamentkatalog`) skapas och får rätt ägare automatiskt. Containern startar som root bara för att byta ägare på `/data`. Sedan släpper den alla rättigheter och kör som 99:100 (`PUID`/`PGID`, Unraids *nobody:users*).
+- **Loggen** visar en startruta med adressen att öppna, och en rad för varje sidvisning. Syns ingen rad när du försöker öppna sidan, når förfrågan aldrig containern. Felet ligger då i nätverket.
 
 ## Exponera mot internet
 
-Containern är byggd för att stå bakom en omvänd proxy som sköter HTTPS, till exempel Nginx Proxy Manager, SWAG, Traefik, Caddy eller Cloudflare Tunnel. Exponera inte port 8000 direkt utan TLS.
+Låt en omvänd proxy sköta HTTPS, till exempel Nginx Proxy Manager, SWAG, Traefik, Caddy eller Cloudflare Tunnel. Exponera inte porten direkt utan TLS.
 
 1. Peka proxyn mot `http://<container>:8080`. Proxyn ska skicka `Host`, `X-Forwarded-For` och `X-Forwarded-Proto`. Det gör alla de nämnda som standard.
-2. Sätt **`TRUSTED_PROXIES`** till proxyns adress eller Docker-nät, till exempel `172.18.0.0/16`. Annars ser containern alla besökare som samma IP-adress. Det gör begränsningen av inloggningsförsök gemensam för alla, och https känns inte igen.
-3. Sätt **`COOKIE_SECURE=true`** när sajten bara nås via https.
+2. Sätt **`TRUSTED_PROXIES`** till **proxyns egen adress**, till exempel `172.18.0.5/32`. Ange inte ett helt nät: alla enheter i ett betrott nät kan låtsas ha en annan IP-adress. Saknas inställningen varnar loggen och föreslår rätt värde.
+3. Sätt **`COOKIE_SECURE=true`**. Sätt gärna också **`ALLOWED_HOSTS`** till ditt domännamn, så att andra värdnamn nekas.
 
 Skydd som är inbyggt:
 
-- **Behörighet:** allt utom inloggningssidan kräver inloggning. Det gäller även `data.json`, `offers.json` och JavaScript-filerna. nginx kontrollerar sessionen inför varje fil.
-- **Lösenord:** hashas med scrypt. Sessionstoken lagras bara som hash. Cookies är HttpOnly och SameSite=Lax, och Secure när sajten nås via https.
+- **Behörighet:** allt utom inloggningssidan kräver inloggning. Det gäller även `data.json`, `offers.json` och JavaScript-filerna.
+- **Lösenord och sessioner:** lösenord hashas med scrypt. Sessionstoken lagras bara som hash. Cookies är HttpOnly och SameSite=Lax, och Secure när sajten nås via https.
 - **Formulär:** CSRF-token och kontroll av ursprung (Origin) på alla formulär och API-anrop.
 - **Begränsning av inloggningsförsök:**
-  - nginx tillåter högst 10 försök per minut och IP-adress.
-  - Appen tillåter högst 20 misslyckade försök per kvart och IP-adress.
-  - Ett konto spärras i 15 minuter efter 8 felaktiga försök.
-  - Svaret är detsamma oavsett om kontot finns, så svaret avslöjar inga användarnamn.
-- **Säkerhetsrubriker:** strikt Content-Security-Policy, HSTS bakom https, X-Frame-Options, `noindex`. nginx-versionen döljs.
-- **Container:** kör som icke-root med skrivskyddat filsystem och utan Linux-capabilities. Den behöver bara `/data` och `/tmp`.
+  - Högst 10 försök per minut och IP-adress.
+  - Högst 20 misslyckade försök per kvart och IP-adress.
+  - 8 felaktiga försök per kvart spärrar kontot **från den adressen**. Ägaren kan fortfarande logga in från sin egen.
+  - Vid storskalig gissning (50 fel i rad) spärras kontot helt i 15 minuter.
+  - Svaret är detsamma oavsett om kontot finns.
+- **Skydd mot överbelastning:**
+  - Strikt kontroll av `Content-Length`. Chunkade förfrågningar nekas.
+  - Rubriker får vara högst 16 KB och måste skickas inom 10 sekunder.
+  - Högst 16 samtidiga anslutningar per IP-adress och 128 totalt.
+  - Vilande anslutningar stängs efter 10 sekunder.
+- **Säkerhetsrubriker:** strikt Content-Security-Policy, HSTS bakom https, X-Frame-Options, `noindex`.
+- **Container:**
+  - Skrivskyddat filsystem.
+  - Appen kör som 99:100 utan Linux-capabilities.
+  - Bara de fyra som behövs för ägarbytet vid start är tillåtna, och de släpps innan appen startar.
+  - Ägarbytet följer inga länkar.
 - **Prishämtaren:** hämtar bara via https från `www.3djake.se`, `www.3dprima.com` och `www.tradera.com`. Den publicerar bara länkar till dessa.
-- **Bambu-synken:** pratar bara med Bambu Labs egna adresser och GitHub (färgkodstabellen). Högst 6 inloggnings- eller synkförsök per kvart och användare, så att ditt Bambu-konto inte spärras av misstag.
+- **Bambu-synken:** pratar bara med Bambu Labs egna adresser och GitHub (färgkodstabellen). Högst 6 inloggnings- eller synkförsök per kvart och användare.
+
+**Prestanda:** katalogen ligger i minnet, förkomprimerad, med ETag och keep-alive. Belastningstestet i CI ger cirka 1 500 förfrågningar per sekund med medianen 6 ms. Processen använder cirka 30 MB minne.
 
 ## Prisuppdatering
 
@@ -100,8 +110,10 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 | `PRICE_UPDATE_TIME` | `01:00` | När priserna uppdateras. Tom stänger av schemat. |
 | `PRICE_UPDATE_ON_START` | `false` | Uppdatera direkt när containern startar |
 | `PRICE_SOURCES` | `3djake,3dprima,tradera` | Vilka källor som används |
-| `TRUSTED_PROXIES` | loopback | Omvända proxyer vars `X-Forwarded-*` litas på (kommaseparerade nät) |
-| `COOKIE_SECURE` | `auto` | `true` = alltid Secure-cookie, `auto` = när proxyn anger https |
+| `TRUSTED_PROXIES` | loopback | Omvända proxyer vars `X-Forwarded-*` litas på. Ange proxyns adress som `/32`. |
+| `COOKIE_SECURE` | `auto` | `true` = alltid Secure-cookie, `auto` = när webbläsaren använder https |
+| `ALLOWED_HOSTS` | – | Tillåtna värdnamn, kommaseparerade (t.ex. `katalog.example.se`). Tomt = alla. |
+| `PUID` / `PGID` | `99` / `100` | Användare och grupp som appen kör som |
 | `SESSION_IDLE_DAYS` / `SESSION_MAX_DAYS` | `14` / `60` | Utloggning efter inaktivitet eller maxtid |
 | `PASSWORD_MIN_LENGTH` | `10` | Minsta lösenordslängd |
 | `BAMBU_SYNC_HOURS` | `6` | Hur ofta kopplade Bambu Lab-konton synkas (0 = bara manuellt) |
@@ -110,11 +122,11 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 ## Kommandon i containern
 
 ```
-docker exec katalog python3 -m katalog users
-docker exec -it katalog python3 -m katalog add-user lisa [--admin]
-docker exec katalog python3 -m katalog reset-password lisa
-docker exec katalog python3 -m katalog unlock lisa
-docker exec katalog python3 -m katalog update
+docker exec bambu-filamentkatalog python -m katalog users
+docker exec -it bambu-filamentkatalog python -m katalog add-user lisa [--admin]
+docker exec bambu-filamentkatalog python -m katalog reset-password lisa
+docker exec bambu-filamentkatalog python -m katalog unlock lisa
+docker exec bambu-filamentkatalog python -m katalog update
 ```
 
 ## Säkerhetskopiering
@@ -134,11 +146,12 @@ Kopiera mappen när containern är stoppad, eller använd `sqlite3 katalog.db ".
 | Sökväg | Innehåll |
 |---|---|
 | `dist/` | Webbappen (HTML, CSS, JS) och inbyggd data |
-| `katalog/` | Server: inloggning (`web.py`, `security.py`, `db.py`), sidor (`pages.py`), Bambu Lab-synk (`bambu.py`), nginx-konfiguration (`nginx.py`), schemaläggning (`scheduler.py`) |
+| `katalog/` | Server (`web.py`, statiska filer i `static.py`), inloggning (`security.py`, `db.py`), sidor (`pages.py`), Bambu Lab-synk (`bambu.py`), schemaläggning (`scheduler.py`) |
+| `docker/entrypoint.sh` | Ger `/data` rätt ägare och startar appen som PUID:PGID |
 | `katalog/prices/` | Prishämtare per källa och sammanslagning (`update.py`) |
 | `assets/` | Stil och ikon för inloggnings- och adminsidorna |
 | `tests/` | Enhetstester och integrationstest mot containern |
 | `build_catalog.py`, `build_prices.py`, `prices.py`, `sources/` | Ursprungliga byggskript och sparade underlag för färgkatalogen. Bygg om med `--build-arg REBUILD_DATA=true`. |
 | `start.py`, `Starta-Windows.bat` | Enkel lokal visning utan inloggning och prisuppdatering |
 
-Utveckling utan Docker: `KATALOG_DATA_DIR=./data KATALOG_SEED_DIR=./dist KATALOG_START_NGINX=false python3 -m katalog serve` startar appen på 127.0.0.1:9000. Testerna körs med `python3 -m unittest discover -s tests -p 'test_*.py'`.
+Utveckling utan Docker: `KATALOG_DATA_DIR=./data KATALOG_SEED_DIR=./dist PORT=8080 python3 -m katalog serve`. Testerna körs med `python3 -m unittest discover -s tests -p 'test_*.py'`.
