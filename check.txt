@@ -1,0 +1,241 @@
+3DVerkstan | 250 None Spole 1000 | PLA Translucent · Blue <= Bambu Lab PLA Translucent with Spool 1kg / 1.75mm · Blue | cent-with-spool-1kg-1-75mm/?attribute_pa_farg=blue
+3DVerkstan | 250 None Spole 1000 | PLA Translucent · Orange <= Bambu Lab PLA Translucent with Spool 1kg / 1.75mm · Orange | nt-with-spool-1kg-1-75mm/?attribute_pa_farg=orange
+3DVerkstan | 250 None Spole 1000 | PLA Translucent · Ice Blue <= Bambu Lab PLA Translucent with Spool 1kg / 1.75mm · Ice Blue | -with-spool-1kg-1-75mm/?attribute_pa_farg=ice-blue
+3DVerkstan | 785 None Spole 1000 | TPU 85A / TPU 90A · Blaze <= Bambu Lab – TPU 90A with Spool · Blaze | bu-lab-tpu-90a-with-spool/?attribute_pa_farg=blaze
+3DVerkstan | 785 None Spole 1000 | TPU 85A / TPU 90A · Frozen <= Bambu Lab – TPU 90A with Spool · Frozen | u-lab-tpu-90a-with-spool/?attribute_pa_farg=frozen
+3DVerkstan | 550 None Spole 1000 | TPU 85A / TPU 90A · Black <= Bambu Lab – TPU 90A with Spool · Black | bu-lab-tpu-90a-with-spool/?attribute_pa_farg=black
+3DVerkstan | 550 None Spole 1000 | TPU 85A / TPU 90A · White <= Bambu Lab – TPU 90A with Spool · White | bu-lab-tpu-90a-with-spool/?attribute_pa_farg=white
+3DVerkstan | 595 None Spole 1000 | TPU 85A / TPU 90A · Neon Orange <= Bambu Lab – TPU 85A with Spool · Neon Orange | -tpu-85a-with-spool/?attribute_pa_farg=neon-orange
+3DVerkstan | 595 None Spole 1000 | TPU 85A / TPU 90A · Light Cyan <= Bambu Lab – TPU 85A with Spool · Light Cyan | b-tpu-85a-with-spool/?attribute_pa_farg=light-cyan
+3DVerkstan | 350 None Spole 1000 | PLA Glow · Glow Green <= Bambu Lab – PLA Glow with Spool · Glow Green | -pla-glow-with-spool/?attribute_pa_farg=glow-green
+3DVerkstan | 710 None Spole 1000 | PC FR · Black <= Bambu Lab – PC FR with Spool · Black | ambu-lab-pc-fr-with-spool/?attribute_pa_farg=black
+3DVerkstan | 710 None Spole 1000 | PC FR · White <= Bambu Lab – PC FR with Spool · White | ambu-lab-pc-fr-with-spool/?attribute_pa_farg=white
+3DVerkstan | 350 None Spole 1000 | PLA Wood · Black Walnut <= Bambu Lab – PLA Wood with Spool – 1kg / 1.75mm · Black Walnut | h-spool-1kg-1-75mm/?attribute_pa_farg=black-walnut
+3DVerkstan | 350 None Spole 1000 | PLA Wood · White Oak <= Bambu Lab – PLA Wood with Spool – 1kg / 1.75mm · White Oak | with-spool-1kg-1-75mm/?attribute_pa_farg=white-oak
+3DVerkstan | 350 None Spole 1000 | PLA Basic Gradient · Arctic Whisper <= Bambu Lab PLA Basic Gradient with Spool – 1 kg / 1.75 mm · Arctic Whisper | -with-spool-1-kg/?attribute_pa_farg=arctic-whisper
+3DVerkstan | 350 None Spole 1000 | PLA Basic Gradient · Ocean to Meadow <= Bambu Lab PLA Basic Gradient with Spool – 1 kg / 1.75 mm · Ocean to Meadow | with-spool-1-kg/?attribute_pa_farg=ocean-to-meadow
+3DVerkstan | 350 None Spole 1000 | PLA Basic Gradient · Solar Breeze <= Bambu Lab PLA Basic Gradient with Spool – 1 kg / 1.75 mm · Solar Breeze | nt-with-spool-1-kg/?attribute_pa_farg=solar-breeze
+3DVerkstan | 250 None Spole 1000 | PETG Translucent · Clear <= Bambu Lab – PETG Translucent with Spool – 1 kg / 1.75 mm · Clear | t-with-spool-1-kg-1-75-mm/?attribute_pa_farg=clear
+3DVerkstan | 500 None Spole 1000 | TPU for AMS · Yellow <= Bambu Lab – TPU for AMS with Spool · Yellow | b-tpu-for-ams-with-spool/?attribute_pa_farg=yellow
+3DVerkstan | 500 None Spole 1000 | TPU for AMS · Blue <= Bambu Lab – TPU for AMS with Spool · Blue | lab-tpu-for-ams-with-spool/?attribute_pa_farg=blue
+3DVerkstan | 500 None Spole 1000 | TPU for AMS · Neon Green <= Bambu Lab – TPU for AMS with Spool · Neon Green | u-for-ams-with-spool/?attribute_pa_farg=neon-green
+3DVerkstan | 500 None Spole 1000 | TPU for AMS · Gray <= Bambu Lab – TPU for AMS with Spool · Gray | lab-tpu-for-ams-with-spool/?attribute_pa_farg=gray
+3DVerkstan | 500 None Spole 1000 | TPU for AMS · White <= Bambu Lab – TPU for AMS with Spool · White | ab-tpu-for-ams-with-spool/?attribute_pa_farg=white
+3DVerkstan | 215 None Refill 1000 | ABS · ABS Navy Blue <= Bambu Lab – ABS Refill – 1 kg / 1.75 mm · ABS Navy Blue | s-refill-1-kg-1-75-mm/?attribute_pa_farg=navy-blue
+3DVerkstan | 215 None Refill 1000 | ABS · ABS Blue <= Bambu Lab – ABS Refill – 1 kg / 1.75 mm · ABS Blue | ab-abs-refill-1-kg-1-75-mm/?attribute_pa_farg=blue
+3DVerkstan | 215 None Refill 1000 | ABS · ABS White <= Bambu Lab – ABS Refill – 1 kg / 1.75 mm · ABS White | b-abs-refill-1-kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 215 None Refill 1000 | ABS · ABS Red <= Bambu Lab – ABS Refill – 1 kg / 1.75 mm · ABS Red | lab-abs-refill-1-kg-1-75-mm/?attribute_pa_farg=red
+3DVerkstan | 400 None Spole 1000 | ABS-GF · Blue <= Bambu Lab – ABS-GF with Spool – 1kg / 1.75 mm · Blue | -gf-with-spool-1kg-1-75-mm/?attribute_pa_farg=blue
+3DVerkstan | 400 None Spole 1000 | ABS-GF · Red <= Bambu Lab – ABS-GF with Spool – 1kg / 1.75 mm · Red | s-gf-with-spool-1kg-1-75-mm/?attribute_pa_farg=red
+3DVerkstan | 400 None Spole 1000 | ABS-GF · Orange <= Bambu Lab – ABS-GF with Spool – 1kg / 1.75 mm · Orange | f-with-spool-1kg-1-75-mm/?attribute_pa_farg=orange
+3DVerkstan | 400 None Spole 1000 | ABS-GF · Gray <= Bambu Lab – ABS-GF with Spool – 1kg / 1.75 mm · Gray | -gf-with-spool-1kg-1-75-mm/?attribute_pa_farg=gray
+3DVerkstan | 400 None Spole 1000 | ABS-GF · White <= Bambu Lab – ABS-GF with Spool – 1kg / 1.75 mm · White | gf-with-spool-1kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 400 None Spole 1000 | ABS-GF · Black <= Bambu Lab – ABS-GF with Spool – 1kg / 1.75 mm · Black | gf-with-spool-1kg-1-75-mm/?attribute_pa_farg=black
+3DVerkstan | 525 None Spole 500 | PVA · Clear <= Bambu Lab- PVA- Clear -with Bambu Reusable Spool- 500g · Clear | ambu-lab-pva-clear-with-bambu-reusable-spool-500g/
+3DVerkstan | 650 None Spole 1000 | ASA Aero · White <= Bambu Lab – ASA Aero with Spool – White 1 kg / 1.75 mm · White | /bambu-lab-asa-aero-with-spool-white-1-kg-1-75-mm/
+3DVerkstan | 785 None Spole 1000 | PA6-GF · Black <= Bambu Lab – PA6-GF with Spool · Black | mbu-lab-pa6-gf-with-spool/?attribute_pa_farg=black
+3DVerkstan | 785 None Spole 1000 | PA6-GF · White <= Bambu Lab – PA6-GF with Spool · White | mbu-lab-pa6-gf-with-spool/?attribute_pa_farg=white
+3DVerkstan | 785 None Spole 1000 | PA6-GF · Gray <= Bambu Lab – PA6-GF with Spool · Gray | ambu-lab-pa6-gf-with-spool/?attribute_pa_farg=gray
+3DVerkstan | 1675 None Spole 750 | PPS-CF · Black <= Bambu Lab – PPS-CF with Spool – Black 750 g / 1.75 mm · Black | dukt/bambu-lab-pps-cf-with-spool-black-750-g-1-75/
+3DVerkstan | 1942 None Spole 750 | PPA-CF · Black <= Bambu Lab – PPA-CF with Spool – Black 750 g / 1.75 mm · Black | t/bambu-lab-ppa-cf-with-spool-black-750-g-1-75-mm/
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Plum <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Plum | -matte-refill-1-kg-1-75-mm/?attribute_pa_farg=plum
+3DVerkstan | 290 None Refill 1000 | PLA Matte · Matte Dark Green <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Dark Green | -refill-1-kg-1-75-mm/?attribute_pa_farg=dark-green
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Dark Blue <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Dark Blue | e-refill-1-kg-1-75-mm/?attribute_pa_farg=dark-blue
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Ash Grey <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Ash Grey | te-refill-1-kg-1-75-mm/?attribute_pa_farg=ash-gray
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Ivory White <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Ivory White | refill-1-kg-1-75-mm/?attribute_pa_farg=ivory-white
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Lemon Yellow <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Lemon Yellow | efill-1-kg-1-75-mm/?attribute_pa_farg=lemon-yellow
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Mandarin Orange <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Mandarin Orange | l-1-kg-1-75-mm/?attribute_pa_farg=mandarine-orange
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Marine Blue <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Marine Blue | refill-1-kg-1-75-mm/?attribute_pa_farg=marine-blue
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Ice Blue <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Ice Blue | te-refill-1-kg-1-75-mm/?attribute_pa_farg=ice-blue
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Charcoal <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Charcoal | te-refill-1-kg-1-75-mm/?attribute_pa_farg=charcoal
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Latte Brown <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Latte Brown | refill-1-kg-1-75-mm/?attribute_pa_farg=latte-brown
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Lilac purple <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Lilac purple | efill-1-kg-1-75-mm/?attribute_pa_farg=lilac-purple
+3DVerkstan | 215 None Refill 1000 | PLA Matte · Matte Scarlet Red <= Bambu Lab PLA Matte Refill – 1 kg / 1.75 mm · Matte Scarlet Red | refill-1-kg-1-75-mm/?attribute_pa_farg=scarlet-red
+3DVerkstan | 350 None Spole 1000 | PLA Sparkle · Classic Gold Sparkle <= Bambu Lab – PLA Sparkle with Spool – 1 kg / 1.75 mm · Classic Gold Sparkle | kg-1-75-mm/?attribute_pa_farg=classic-gold-sparkle
+3DVerkstan | 350 None Spole 1000 | PLA Sparkle · Alpine Green Sparkle <= Bambu Lab – PLA Sparkle with Spool – 1 kg / 1.75 mm · Alpine Green Sparkle | spool-1-kg-1-75-mm/?attribute_pa_farg=alpine-green
+3DVerkstan | 350 None Spole 1000 | PLA Sparkle · Crimson Red Sparkle <= Bambu Lab – PLA Sparkle with Spool – 1 kg / 1.75 mm · Crimson Red Sparkle | -spool-1-kg-1-75-mm/?attribute_pa_farg=crimson-red
+3DVerkstan | 350 None Spole 1000 | PLA Sparkle · Onyx Black Sparkle <= Bambu Lab – PLA Sparkle with Spool – 1 kg / 1.75 mm · Onyx Black Sparkle | h-spool-1-kg-1-75-mm/?attribute_pa_farg=onyx-black
+3DVerkstan | 350 None Spole 1000 | PLA Sparkle · Royal Purple Sparkle <= Bambu Lab – PLA Sparkle with Spool – 1 kg / 1.75 mm · Royal Purple Sparkle | spool-1-kg-1-75-mm/?attribute_pa_farg=royal-purple
+3DVerkstan | 350 None Spole 1000 | PLA Sparkle · Slate Gray Sparkle <= Bambu Lab – PLA Sparkle with Spool – 1 kg / 1.75 mm · Slate Gray Sparkle | h-spool-1-kg-1-75-mm/?attribute_pa_farg=slate-gray
+3DVerkstan | 460 None Spole 500 | Support for PLA/PETG · Black <= Bambu Lab – Support for PLA/PETG · Black | -with-spool-05-kg-1-75-mm/?attribute_pa_farg=black
+3DVerkstan | 460 None Spole 500 | Support for PLA/PETG · Nature <= Bambu Lab – Support for PLA/PETG · Nature | ith-spool-05-kg-1-75-mm/?attribute_pa_farg=natural
+3DVerkstan | 438 None Spole 1000 | TPU 95A HF · Blue <= Bambu Lab – TPU 95A HF with Spool – 1kg · Blue | -lab-tpu-95a-hf-with-spool/?attribute_pa_farg=blue
+3DVerkstan | 438 None Spole 1000 | TPU 95A HF · Gray <= Bambu Lab – TPU 95A HF with Spool – 1kg · Gray | -lab-tpu-95a-hf-with-spool/?attribute_pa_farg=gray
+3DVerkstan | 438 None Spole 1000 | TPU 95A HF · Yellow <= Bambu Lab – TPU 95A HF with Spool – 1kg · Yellow | ab-tpu-95a-hf-with-spool/?attribute_pa_farg=yellow
+3DVerkstan | 438 None Spole 1000 | TPU 95A HF · Black <= Bambu Lab – TPU 95A HF with Spool – 1kg · Black | lab-tpu-95a-hf-with-spool/?attribute_pa_farg=black
+3DVerkstan | 438 None Spole 1000 | TPU 95A HF · White <= Bambu Lab – TPU 95A HF with Spool – 1kg · White | lab-tpu-95a-hf-with-spool/?attribute_pa_farg=white
+3DVerkstan | 535 None Spole 1000 | PC · White <= Bambu Lab PC with Spool – 1 kg / 1.75 mm · White | c-with-spool-1-kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 535 None Spole 1000 | PC · Clear Black <= Bambu Lab PC with Spool – 1 kg / 1.75 mm · Clear Black | -spool-1-kg-1-75-mm/?attribute_pa_farg=clear-black
+3DVerkstan | 535 None Spole 1000 | PC · Black <= Bambu Lab PC with Spool – 1 kg / 1.75 mm · Black | c-with-spool-1-kg-1-75-mm/?attribute_pa_farg=black
+3DVerkstan | 675 None Spole 500 | PAHT-CF · Black <= Bambu Lab – PAHT-CF with Spool · Black | bu-lab-paht-cf-with-spool/?attribute_pa_farg=black
+3DVerkstan | 600 None Spole 1000 | PLA Aero · Gray <= Bambu Lab – PLA Aero with Spool – 1 kg / 1.75 mm · Gray | ro-with-spool-1-kg-1-75-mm/?attribute_pa_farg=gray
+3DVerkstan | 600 None Spole 1000 | PLA Aero · White <= Bambu Lab – PLA Aero with Spool – 1 kg / 1.75 mm · White | o-with-spool-1-kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Rose Gold <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Rose Gold | th-spool-1-kg-1-75-mm/?attribute_pa_farg=rose-gold
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Baby Blue <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Baby Blue | th-spool-1-kg-1-75-mm/?attribute_pa_farg=baby-blue
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Candy Green <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Candy Green | -spool-1-kg-1-75-mm/?attribute_pa_farg=candy-green
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Candy Red <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Candy Red | th-spool-1-kg-1-75-mm/?attribute_pa_farg=candy-red
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Gold <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Gold | lk-with-spool-1-kg-1-75-mm/?attribute_pa_farg=gold
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · White <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · White | k-with-spool-1-kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Champagne <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Champagne | th-spool-1-kg-1-75-mm/?attribute_pa_farg=champagne
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Titan Gray <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Titan Gray | h-spool-1-kg-1-75-mm/?attribute_pa_farg=titan-gray
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Silver <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Silver | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=silver
+3DVerkstan | 250 None Spole 1000 | PLA Silk+ · Blue <= Bambu Lab – PLA Silk+ with Spool – 1 kg / 1.75 mm · Blue | lk-with-spool-1-kg-1-75-mm/?attribute_pa_farg=blue
+3DVerkstan | 350 None Spole 1000 | PLA Metal · Iron Gray Metallic <= Bambu Lab – PLA Metal with Spool – 1 kg / 1.75 mm · Iron Gray Metallic | 1-kg-1-75-mm/?attribute_pa_farg=iron-gray-metallic
+3DVerkstan | 350 None Spole 1000 | PLA Metal · Cobalt Blue Metallic <= Bambu Lab – PLA Metal with Spool – 1 kg / 1.75 mm · Cobalt Blue Metallic | kg-1-75-mm/?attribute_pa_farg=cobalt-blue-metallic
+3DVerkstan | 350 None Spole 1000 | PLA Metal · Oxide Green Metallic <= Bambu Lab – PLA Metal with Spool – 1 kg / 1.75 mm · Oxide Green Metallic | kg-1-75-mm/?attribute_pa_farg=oxide-green-metallic
+3DVerkstan | 350 None Spole 1000 | PLA Metal · Copper Brown Metallic <= Bambu Lab – PLA Metal with Spool – 1 kg / 1.75 mm · Copper Brown Metallic | g-1-75-mm/?attribute_pa_farg=copper-brown-metallic
+3DVerkstan | 350 None Spole 1000 | PLA Metal · Iridium Gold Metallic <= Bambu Lab – PLA Metal with Spool – 1 kg / 1.75 mm · Iridium Gold Metallic | g-1-75-mm/?attribute_pa_farg=iridium-gold-metallic
+3DVerkstan | 560 None Spole 500 | PA6-CF · Black <= Bambu Lab – PA6-CF with Spool – 1.75 mm · Black | pa6-cf-with-spool-1-75-mm/?attribute_pa_farg=black
+3DVerkstan | 325 None Spole 500 | Support for PLA (New Version) · White <= Bambu Lab – Support for PLA – White 0,5 kg / 1.75 mm · White | ambu-lab-support-for-pla-with-spool-05-kg-1-75-mm/
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Turquoise <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Turquoise | c-refill-1-kg-1-75-mm/?attribute_pa_farg=turquoise
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Dark Gray <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Dark Gray | c-refill-1-kg-1-75-mm/?attribute_pa_farg=dark-gray
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Mistletoe Green <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Mistletoe Green | ll-1-kg-1-75-mm/?attribute_pa_farg=mistletoe-green
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Brown <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Brown | basic-refill-1-kg-1-75-mm/?attribute_pa_farg=brown
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Jade White <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Jade White | basic-refill-1-kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Yellow <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Yellow | asic-refill-1-kg-1-75-mm/?attribute_pa_farg=yellow
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Blue <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Blue | -basic-refill-1-kg-1-75-mm/?attribute_pa_farg=blue
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Gray <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Gray | -basic-refill-1-kg-1-75-mm/?attribute_pa_farg=gray
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Silver <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Silver | asic-refill-1-kg-1-75-mm/?attribute_pa_farg=silver
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Pink <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Pink | -basic-refill-1-kg-1-75-mm/?attribute_pa_farg=pink
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Red <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Red | a-basic-refill-1-kg-1-75-mm/?attribute_pa_farg=red
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Orange <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Orange | asic-refill-1-kg-1-75-mm/?attribute_pa_farg=orange
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Blue Grey <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Blue Grey | c-refill-1-kg-1-75-mm/?attribute_pa_farg=blue-grey
+3DVerkstan | 215 None Refill 1000 | PLA Basic · Gold <= Bambu Lab PLA Basic Refill – 1 kg / 1.75 mm · Gold | -basic-refill-1-kg-1-75-mm/?attribute_pa_farg=gold
+3DVerkstan | 350 None Spole 1000 | PLA Marble · White Marble <= Bambu Lab – PLA Marble with Spool – 1 kg / 1.75 mm · White Marble | spool-1-kg-1-75-mm/?attribute_pa_farg=white-marble
+3DVerkstan | 350 None Spole 1000 | PLA Marble · Red Granite <= Bambu Lab – PLA Marble with Spool – 1 kg / 1.75 mm · Red Granite | -spool-1-kg-1-75-mm/?attribute_pa_farg=red-granite
+3DVerkstan | 250 None Spole 1000 | ABS · ABS Tangerine Yellow <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS Tangerine Yellow | l-1-kg-1-75-mm/?attribute_pa_farg=tangerine-yellow
+3DVerkstan | 250 None Spole 1000 | ABS · ABS Red <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS Red | abs-with-spool-1-kg-1-75-mm/?attribute_pa_farg=red
+3DVerkstan | 250 None Spole 1000 | ABS · ABS White <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS White | s-with-spool-1-kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 250 None Spole 1000 | ABS · ABS Orange <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS Orange | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=orange
+3DVerkstan | 250 None Spole 1000 | ABS · ABS Blue <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS Blue | bs-with-spool-1-kg-1-75-mm/?attribute_pa_farg=blue
+3DVerkstan | 250 None Spole 1000 | ABS · ABS Silver <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS Silver | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=silver
+3DVerkstan | 250 None Spole 1000 | ABS · ABS Bambu Green <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS Bambu Green | s-with-spool-1-kg-1-75-mm/?attribute_pa_farg=green
+3DVerkstan | 250 None Spole 1000 | ABS · ABS Black <= Bambu Lab – ABS with Spool – 1 kg / 1.75 mm · ABS Black | s-with-spool-1-kg-1-75-mm/?attribute_pa_farg=black
+3DVerkstan | 315 None Spole 1000 | ASA · Gray <= Bambu Lab – ASA with Spool – 1 kg / 1.75 mm · Gray | sa-with-spool-1-kg-1-75-mm/?attribute_pa_farg=grey
+3DVerkstan | 315 None Spole 1000 | ASA · Green <= Bambu Lab – ASA with Spool – 1 kg / 1.75 mm · Green | a-with-spool-1-kg-1-75-mm/?attribute_pa_farg=green
+3DVerkstan | 315 None Spole 1000 | ASA · Red <= Bambu Lab – ASA with Spool – 1 kg / 1.75 mm · Red | asa-with-spool-1-kg-1-75-mm/?attribute_pa_farg=red
+3DVerkstan | 375 None Spole 1000 | PLA-CF · Royal Blue <= Bambu Lab – PLA-CF with Spool – 1 kg / 1.75 mm · Royal Blue | h-spool-1-kg-1-75-mm/?attribute_pa_farg=royal-blue
+3DVerkstan | 375 None Spole 1000 | PLA-CF · Jeans Blue <= Bambu Lab – PLA-CF with Spool – 1 kg / 1.75 mm · Jeans Blue | h-spool-1-kg-1-75-mm/?attribute_pa_farg=jeans-blue
+3DVerkstan | 375 None Spole 1000 | PLA-CF · Lava Gray <= Bambu Lab – PLA-CF with Spool – 1 kg / 1.75 mm · Lava Gray | th-spool-1-kg-1-75-mm/?attribute_pa_farg=lava-gray
+3DVerkstan | 375 None Spole 1000 | PLA-CF · Matcha Green <= Bambu Lab – PLA-CF with Spool – 1 kg / 1.75 mm · Matcha Green | spool-1-kg-1-75-mm/?attribute_pa_farg=matcha-green
+3DVerkstan | 375 None Spole 1000 | PLA-CF · Black <= Bambu Lab – PLA-CF with Spool – 1 kg / 1.75 mm · Black | f-with-spool-1-kg-1-75-mm/?attribute_pa_farg=black
+3DVerkstan | 375 None Spole 1000 | PLA-CF · Burgundy Red <= Bambu Lab – PLA-CF with Spool – 1 kg / 1.75 mm · Burgundy Red | spool-1-kg-1-75-mm/?attribute_pa_farg=burgundy-red
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Cyan <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Cyan | ic-with-spool-1-kg-1-75-mm/?attribute_pa_farg=cyan
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Sunflower Yellow <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Sunflower Yellow | l-1-kg-1-75-mm/?attribute_pa_farg=sunflower-yellow
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Mistletoe Green <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Mistletoe Green | ol-1-kg-1-75-mm/?attribute_pa_farg=mistletoe-green
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Jade White <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Jade White | c-with-spool-1-kg-1-75-mm/?attribute_pa_farg=white
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Yellow <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Yellow | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=yellow
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Bronze <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Bronze | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=bronze
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Gold <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Gold | ic-with-spool-1-kg-1-75-mm/?attribute_pa_farg=gold
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Blue <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Blue | ic-with-spool-1-kg-1-75-mm/?attribute_pa_farg=blue
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Gray <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Gray | ic-with-spool-1-kg-1-75-mm/?attribute_pa_farg=gray
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Silver <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Silver | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=silver
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Bambu Green <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Bambu Green | -spool-1-kg-1-75-mm/?attribute_pa_farg=bambu-green
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Pink <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Pink | ic-with-spool-1-kg-1-75-mm/?attribute_pa_farg=pink
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Purple <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Purple | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=purple
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Red <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Red | sic-with-spool-1-kg-1-75-mm/?attribute_pa_farg=red
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Beige <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Beige | c-with-spool-1-kg-1-75-mm/?attribute_pa_farg=beige
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Orange <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Orange | -with-spool-1-kg-1-75-mm/?attribute_pa_farg=orange
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Blue Grey <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Blue Grey | th-spool-1-kg-1-75-mm/?attribute_pa_farg=blue-grey
+3DVerkstan | 250 None Spole 1000 | PLA Basic · Black <= Bambu Lab PLA Basic with Spool – 1 kg / 1.75 mm · Black | c-with-spool-1-kg-1-75-mm/?attribute_pa_farg=black
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Ash Grey <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Ash Grey | ith-spool-1-kg-1-75-mm/?attribute_pa_farg=ash-gray
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Ivory White <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Ivory White | -spool-1-kg-1-75-mm/?attribute_pa_farg=ivory-white
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Lemon Yellow <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Lemon Yellow | spool-1-kg-1-75-mm/?attribute_pa_farg=lemon-yellow
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Mandarin Orange <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Mandarin Orange | l-1-kg-1-75-mm/?attribute_pa_farg=mandarine-orange
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Ice Blue <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Ice Blue | ith-spool-1-kg-1-75-mm/?attribute_pa_farg=ice-blue
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Dark Blue <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Dark Blue | th-spool-1-kg-1-75-mm/?attribute_pa_farg=dark-blue
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Grass Green <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Grass Green | -spool-1-kg-1-75-mm/?attribute_pa_farg=grass-green
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Dark Green <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Dark Green | h-spool-1-kg-1-75-mm/?attribute_pa_farg=dark-green
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Charcoal <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Charcoal | ith-spool-1-kg-1-75-mm/?attribute_pa_farg=charcoal
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Latte Brown <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Latte Brown | -spool-1-kg-1-75-mm/?attribute_pa_farg=latte-brown
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Dark Brown <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Dark Brown | h-spool-1-kg-1-75-mm/?attribute_pa_farg=dark-brown
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Sakura Pink <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Sakura Pink | -spool-1-kg-1-75-mm/?attribute_pa_farg=sakura-pink
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Lilac purple <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Lilac purple | spool-1-kg-1-75-mm/?attribute_pa_farg=lilac-purple
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Scarlet Red <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Scarlet Red | -spool-1-kg-1-75-mm/?attribute_pa_farg=scarlet-red
+3DVerkstan | 250 None Spole 1000 | PLA Matte · Matte Dark Red <= Bambu Lab PLA Matte with Spool – 1 kg / 1.75 mm · Matte Dark Red | ith-spool-1-kg-1-75-mm/?attribute_pa_farg=dark-red
+3DExperten | 330 None Spole 1000 | PLA Basic · Black <= Bambu Lab - PLA Basic - Svart - 1,75 mm - 1 kg | n.se/products/bambu-lab-pla-basic-black-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Matte · Matte Ivory White <= Bambu Lab - PLA Matt - Elfenbensvit - 1,75 mm - 1 kg | roducts/bambu-lab-pla-matte-ivory-white-1-75mm-1kg
+3DExperten | 375 None Spole 1000 | PLA Matte · Matte Charcoal <= Bambu Lab - PLA Matt - Träkol - 1,75 mm - 1 kg | e/products/bambu-lab-pla-matte-charcoal-1-75mm-1kg
+3DExperten | 299 None Refill 1000 | PLA Basic · Black <= Bambu Lab - PLA Basic - Svart - 1,75 mm - 1 kg - Refill | oducts/bambu-lab-pla-basic-black-1-75mm-1kg-refill
+3DExperten | 330 None Spole 1000 | PLA Basic · Blue <= Bambu Lab - PLA Basic - Blå - 1,75 mm - 1 kg | en.se/products/bambu-lab-pla-basic-blue-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Basic · Gray <= Bambu Lab - PLA Basic - Grå - 1,75 mm - 1 kg | en.se/products/bambu-lab-pla-basic-grey-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Matte · Matte Ash Grey <= Bambu Lab - PLA Matt - Askgrå - 1,75 mm - 1 kg | e/products/bambu-lab-pla-matte-ash-grey-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Basic · Yellow <= Bambu Lab - PLA Basic - Gul - 1,75 mm - 1 kg | .se/products/bambu-lab-pla-basic-yellow-1-75mm-1kg
+3DExperten | 330 None Refill 1000 | PLA Matte · Matte Ivory White <= Bambu Lab - PLA Matt - Elfenbensvit - 1,75 mm - 1 kg - Refill | /bambu-lab-pla-matte-ivory-white-1-75mm-1kg-refill
+3DExperten | 330 None Spole 1000 | PLA Basic · Cyan <= Bambu Lab - PLA Basic - Cyan - 1,75 mm - 1 kg | en.se/products/bambu-lab-pla-basic-cyan-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Basic · Orange <= Bambu Lab - PLA Basic - Orange - 1,75 mm - 1 kg | .se/products/bambu-lab-pla-basic-orange-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Basic · Bambu Green <= Bambu Lab - PLA Basic - Bambu Grön - 1,75 mm - 1 kg | roducts/bambu-lab-pla-basic-bambu-green-1-75mm-1kg
+3DExperten | 269 None Spole 1000 | PLA Matte · Matte Latte Brown <= Bambu Lab - PLA Matt - Latte Brun - 1,75 mm - 1 kg | roducts/bambu-lab-pla-matte-latte-brown-1-75mm-1kg
+3DExperten | 375 None Spole 1000 | PLA Matte · Matte Scarlet Red <= Bambu Lab - PLA Matt - Scharlakansröd - 1,75 mm - 1 kg | roducts/bambu-lab-pla-matte-scarlet-red-1-75mm-1kg
+3DExperten | 370 None Spole 1000 | PLA Matte · Matte Dark Green <= Bambu Lab - PLA Matt - Mörkgrön - 1,75 mm - 1 kg | products/bambu-lab-pla-matte-dark-green-1-75mm-1kg
+3DExperten | 330 None Refill 1000 | PLA Matte · Matte Charcoal <= Bambu Lab - PLA Matt - Träkol - 1,75 mm - 1 kg - Refill | cts/bambu-lab-pla-matte-charcoal-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Gray <= Bambu Lab - PLA Basic - Grå - 1,75 mm - 1 kg - Refill | roducts/bambu-lab-pla-basic-grey-1-75mm-1kg-refill
+3DExperten | 330 None Refill 1000 | PLA Matte · Matte Ash Grey <= Bambu Lab - PLA Matt - Askgrå - 1,75 mm - 1 kg - Refill | cts/bambu-lab-pla-matte-ash-grey-1-75mm-1kg-refill
+3DExperten | 370 None Spole 1000 | PLA Matte · Matte Sakura Pink <= Bambu Lab - PLA Matt - Sakura Rosa - 1,75 mm - 1 kg | roducts/bambu-lab-pla-matte-sakura-pink-1-75mm-1kg
+3DExperten | 370 None Spole 1000 | PLA Matte · Matte Dark Brown <= Bambu Lab - PLA Matt - Mörkbrun - 1,75 mm - 1 kg | products/bambu-lab-pla-matte-dark-brown-1-75mm-1kg
+3DExperten | 299 None Refill 1000 | PLA Basic · Red <= Bambu Lab - PLA Basic - Röd - 1,75 mm - 1 kg - Refill | products/bambu-lab-pla-basic-red-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Yellow <= Bambu Lab - PLA Basic - Gul - 1,75 mm - 1 kg - Refill | ducts/bambu-lab-pla-basic-yellow-1-75mm-1kg-refill
+3DExperten | 370 None Spole 1000 | PLA Matte · Matte Lemon Yellow <= Bambu Lab - PLA Matt - Citrongul - 1,75 mm - 1 kg | oducts/bambu-lab-pla-matte-lemon-yellow-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Basic · Beige <= Bambu Lab - PLA Basic - Beige - 1,75 mm - 1 kg  | n.se/products/bambu-lab-pla-basic-beige-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Matte · Matte Grass Green <= Bambu Lab - PLA Matt - Gräsgrön - 1,75 mm - 1 kg | roducts/bambu-lab-pla-matte-grass-green-1-75mm-1kg
+3DExperten | 330 None Refill 1000 | PLA Basic · Light Gray <= Bambu Lab - PLA Basic - Ljusgrå - 1,75 mm - 1 kg - Refill | s/bambu-lab-pla-basic-light-grey-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Orange <= Bambu Lab - PLA Basic - Orange - 1,75 mm - 1 kg - Refill | ducts/bambu-lab-pla-basic-orange-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Dark Gray <= Bambu Lab - PLA Basic - Mörkgrå - 1,75 mm - 1 kg - Refill | ts/bambu-lab-pla-basic-dark-grey-1-75mm-1kg-refill
+3DExperten | 330 None Spole 1000 | PLA Basic · Brown <= Bambu Lab - PLA Basic - Brun - 1,75 mm - 1 kg  | n.se/products/bambu-lab-pla-basic-brown-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Matte · Matte Dark Red <= Bambu Lab - PLA Matt - Mörkröd - 1,75 mm - 1 kg | e/products/bambu-lab-pla-matte-dark-red-1-75mm-1kg
+3DExperten | 299 None Refill 1000 | PLA Basic · Blue <= Bambu Lab - PLA Basic - Blå - 1,75 mm - 1 kg - Refill | roducts/bambu-lab-pla-basic-blue-1-75mm-1kg-refill
+3DExperten | 330 None Spole 1000 | PLA Matte · Matte Ice Blue <= Bambu Lab - PLA Matt - Isblå - 1,75 mm - 1 kg | e/products/bambu-lab-pla-matte-ice-blue-1-75mm-1kg
+3DExperten | 299 None Refill 1000 | PLA Basic · Beige <= Bambu Lab - PLA Basic - Beige - 1,75 mm - 1 kg - Refill | oducts/bambu-lab-pla-basic-beige-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Bone White <= Bambu Lab - PLA Matt - Benvit - 1,75 mm - 1 kg - Refill | s/bambu-lab-pla-matte-bone-white-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Purple <= Bambu Lab - PLA Basic - Lila - 1,75 mm - 1 kg - Refill | ducts/bambu-lab-pla-basic-purple-1-75mm-1kg-refill
+3DExperten | 269 None Refill 1000 | PLA Matte · Matte Latte Brown <= Bambu Lab - PLA Matt - Latte Brun - 1,75 mm - 1 kg - Refill | /bambu-lab-pla-matte-latte-brown-1-75mm-1kg-refill
+3DExperten | 330 None Spole 1000 | PLA Basic · Bronze <= Bambu Lab - PLA Basic - Brons - 1,75 mm - 1 kg | .se/products/bambu-lab-pla-basic-bronze-1-75mm-1kg
+3DExperten | 453 None Spole 1000 | PLA Silk+ · White <= Bambu Lab - PLA Silk+ - Vit - 1,75 mm - 1 kg | .se/products/bambu-lab-pla-silk-white-1-75mm-1kg-1
+3DExperten | 330 None Spole 1000 | PLA Matte · Matte Mandarin Orange <= Bambu Lab - PLA Matte - Mandarin Orange - 1,75 mm - 1 kg | cts/bambu-lab-pla-matte-mandarin-orange-1-75mm-1kg
+3DExperten | 299 None Refill 1000 | PLA Basic · Brown <= Bambu Lab - PLA Basic - Brun - 1,75 mm - 1 kg - Refill | oducts/bambu-lab-pla-basic-brown-1-75mm-1kg-refill
+3DExperten | 453 None Spole 1000 | PLA Silk+ · Silver <= Bambu Lab - PLA Silk+ - Silver - 1,75 mm - 1 kg | se/products/bambu-lab-pla-silk-silver-1-75mm-1kg-1
+3DExperten | 330 None Spole 1000 | PLA Basic · Pink <= Bambu Lab - PLA Basic - Rosa - 1,75 mm - 1 kg | en.se/products/bambu-lab-pla-basic-pink-1-75mm-1kg
+3DExperten | 330 None Refill 1000 | PLA Basic · Magenta <= Bambu Lab - PLA Basic - Magenta - 1,75 mm - 1 kg - Refill | ucts/bambu-lab-pla-basic-magenta-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Dark Green <= Bambu Lab - PLA Matt - Mörkgrön - 1,75 mm - 1 kg - Refill | s/bambu-lab-pla-matte-dark-green-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Gold <= Bambu Lab - PLA Basic - Guld - 1,75 mm - 1 kg - Refill | roducts/bambu-lab-pla-basic-gold-1-75mm-1kg-refill
+3DExperten | 337 None Refill 1000 | PLA Matte · Matte Desert Tan <= Bambu Lab - PLA Matt - Desert Tan - 1,75 mm - 1 kg - Refill | s/bambu-lab-pla-matte-desert-tan-1-75mm-1kg-refill
+3DExperten | 271 None Refill 1000 | PLA Matte · Matte Grass Green <= Bambu Lab - PLA Matt - Gräsgrön - 1,75 mm - 1 kg - Refill | /bambu-lab-pla-matte-grass-green-1-75mm-1kg-refill
+3DExperten | 330 None Refill 1000 | PLA Basic · Cyan <= Bambu Lab - PLA Basic - Cyan - 1,75 mm - 1 kg - Refill | roducts/bambu-lab-pla-basic-cyan-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Bronze <= Bambu Lab - PLA Basic - Brons - 1,75 mm - 1 kg - Refill | ducts/bambu-lab-pla-basic-bronze-1-75mm-1kg-refill
+3DExperten | 367 None Spole 1000 | ABS · ABS Silver <= Bambu Lab - ABS - Silver - 1,75 mm - 1 kg | perten.se/products/bambu-lab-abs-silver-1-75mm-1kg
+3DExperten | 299 None Refill 1000 | PLA Basic · Pink <= Bambu Lab - PLA Basic - Stark rosa - 1,75 mm - 1 kg - Refill | cts/bambu-lab-pla-basic-hot-pink-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | ABS · ABS White <= Bambu Lab - ABS - Vit - 1,75 mm - 1 kg - Refill | .se/products/bambu-lab-abs-white-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Silver <= Bambu Lab - PLA Basic - Silver - 1,75 mm - 1 kg - Refill | ducts/bambu-lab-pla-basic-silver-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Marine Blue <= Bambu Lab - PLA Matt - Marinblå - 1,75 mm - 1 kg - Refill | /bambu-lab-pla-matte-marine-blue-1-75mm-1kg-refill
+3DExperten | 367 None Spole 1000 | ABS · ABS Red <= Bambu Lab - ABS - Röd - 1,75 mm - 1 kg | dexperten.se/products/bambu-lab-abs-red-1-75mm-1kg
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Caramel <= Bambu Lab - PLA Matt - Karamell - 1,75 mm - 1 kg - Refill | ucts/bambu-lab-pla-matte-caramel-1-75mm-1kg-refill
+3DExperten | 299 None Refill 1000 | PLA Basic · Turquoise <= Bambu Lab - PLA Basic - Turkos - 1,75 mm - 1 kg - Refill | ts/bambu-lab-pla-basic-turquoise-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Lemon Yellow <= Bambu Lab - PLA Matt - Citrongul - 1,75 mm - 1 kg - Refill | bambu-lab-pla-matte-lemon-yellow-1-75mm-1kg-refill
+3DExperten | 453 None Spole 1000 | PLA Silk+ · Titan Gray <= Bambu Lab - PLA Silk+ - Titangrå - 1,75 mm - 1 kg | /products/bambu-lab-pla-silk-titan-grey-1-75mm-1kg
+3DExperten | 299 None Refill 1000 | PLA Basic · Indigo Purple <= Bambu Lab - PLA Basic - Indigo Purple - 1,75 mm - 1 kg - Refill | ambu-lab-pla-basic-indigo-purple-1-75mm-1kg-refill
+3DExperten | 271 None Refill 1000 | PLA Matte · Matte Ice Blue <= Bambu Lab - PLA Matt - Isblå - 1,75 mm - 1 kg - Refill | cts/bambu-lab-pla-matte-ice-blue-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Dark Blue <= Bambu Lab - PLA Matt - Mörkblå - 1,75 mm - 1 kg - Refill | ts/bambu-lab-pla-matte-dark-blue-1-75mm-1kg-refill
+3DExperten | 393 None Spole 1000 | PLA Basic Gradient · Mint Lime <= Bambu Lab - PLA Basic Gradient - Mint Lime - 1,75 mm - 1 kg | /bambu-lab-pla-basic-gradient-mint-lime-1-75mm-1kg
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Sakura Pink <= Bambu Lab - PLA Matt - Sakura Rosa - 1,75 mm - 1 kg - Refill | /bambu-lab-pla-matte-sakura-pink-1-75mm-1kg-refill
+3DExperten | 453 None Spole 1000 | PLA Silk+ · Blue <= Bambu Lab - PLA Silk+ - Blå - 1,75 mm - 1 kg | n.se/products/bambu-lab-pla-silk-blue-1-75mm-1kg-1
+3DExperten | 299 None Refill 1000 | PLA Basic · Pink <= Bambu Lab - PLA Basic - Rosa - 1,75 mm - 1 kg - Refill | roducts/bambu-lab-pla-basic-pink-1-75mm-1kg-refill
+3DExperten | 367 None Spole 1000 | ABS · ABS Bambu Green <= Bambu Lab - ABS - Bambu Grön - 1,75 mm - 1 kg | n.se/products/bambu-lab-abs-bambu-green-1-75mm-1kg
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Dark Brown <= Bambu Lab - PLA Matt - Mörkbrun - 1,75 mm - 1 kg - Refill | s/bambu-lab-pla-matte-dark-brown-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Nardo Gray <= Bambu Lab - PLA Matt - Nardo Grå - 1,75 mm - 1 kg - Refill | s/bambu-lab-pla-matte-nardo-grey-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Sky Blue <= Bambu Lab - PLA Matt - Himmelsblå - 1,75 mm - 1 kg - Refill | cts/bambu-lab-pla-matte-sky-blue-1-75mm-1kg-refill
+3DExperten | 367 None Spole 1000 | ABS · ABS Blue <= Bambu Lab - ABS - Blå - 1,75 mm - 1 kg | experten.se/products/bambu-lab-abs-blue-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Basic Gradient · Arctic Whisper <= Bambu Lab - PLA Basic Gradient - Arctic Whisper - 1,75 mm - 1 kg | u-lab-pla-basic-gradient-arctic-whisper-1-75mm-1kg
+3DExperten | 330 None Refill 1000 | PLA Matte · Matte Mandarin Orange <= Bambu Lab - PLA Matt - Mandarinorange - 1,75 mm - 1 kg - Refill | bu-lab-pla-matte-mandarin-orange-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Terracotta <= Bambu Lab - PLA Matt - Terrakotta - 1,75 mm - 1 kg - Refill | s/bambu-lab-pla-matte-terracotta-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Plum <= Bambu Lab - PLA Matt - Plommon - 1,75 mm - 1 kg - Refill | roducts/bambu-lab-pla-matte-plum-1-75mm-1kg-refill
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Dark Red <= Bambu Lab - PLA Matt - Mörkröd - 1,75 mm - 1 kg - Refill | cts/bambu-lab-pla-matte-dark-red-1-75mm-1kg-refill
+3DExperten | 453 None Spole 1000 | PLA Silk+ · Rose Gold <= Bambu Lab - PLA Silk+ - Roséguld - 1,75 mm - 1 kg | e/products/bambu-lab-pla-silk-rose-gold-1-75mm-1kg
+3DExperten | 453 None Spole 1000 | PLA Silk+ · Pink <= Bambu Lab - PLA Silk+ - Rosa - 1,75 mm - 1 kg | n.se/products/bambu-lab-pla-silk-pink-1-75mm-1kg-1
+3DExperten | 375 None Spole 1000 | PLA Basic · Indigo Purple <= Bambu Lab - PLA Basic - Indigo Purple - 1.75mm - 1kg | ducts/bambu-lab-pla-basic-indigo-purple-1-75mm-1kg
+3DExperten | 340 None Refill 1000 | PLA Matte · Matte Apple Green <= Bambu Lab - PLA Matt - Äppelgrön - 1,75 mm - 1 kg - Refill | /bambu-lab-pla-matte-apple-green-1-75mm-1kg-refill
+3DExperten | 453 None Spole 1000 | PLA Silk+ · Champagne <= Bambu Lab - PLA Silk+ - Champagne - 1,75 mm - 1 kg | e/products/bambu-lab-pla-silk-champagne-1-75mm-1kg
+3DExperten | 330 None Spole 1000 | PLA Basic Gradient · Solar Breeze <= Bambu Lab - PLA Basic Gradient - Solar Breeze - 1,75 mm - 1 kg | mbu-lab-pla-basic-gradient-solar-breeze-1-75mm-1kg
+3DExperten | 393 None Spole 1000 | PLA Basic Gradient · Dusk Glare <= Bambu Lab - PLA Basic Gradient - Dusk Glare - 1,75 mm - 1 kg | bambu-lab-pla-basic-gradient-dusk-glare-1-75mm-1kg
+3DExperten | 393 None Spole 1000 | PLA Basic Gradient · Pink Citrus <= Bambu Lab - PLA Basic Gradient - Rosa Citrus - 1,75 mm - 1 kg | ambu-lab-pla-basic-gradient-pink-citrus-1-75mm-1kg
+3DExperten | 453 None Spole 1000 | PLA Silk+ · Purple <= Bambu Lab - PLA Silk+ - Lila - 1,75 mm - 1 kg | se/products/bambu-lab-pla-silk-purple-1-75mm-1kg-1
+3DExperten | 446 None Spole 1000 | PLA Wood · Clay Brown <= Bambu Lab - PLA-trä - Lerbrun - 1,75 mm - 1 kg | /products/bambu-lab-pla-wood-clay-brown-1-75mm-1kg
