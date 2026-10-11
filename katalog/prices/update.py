@@ -18,6 +18,10 @@ SOURCES = {
     'tradera': ('Tradera', tradera, lambda o: o['shop'].startswith('Tradera')),
 }
 SEED_STATE = Path(__file__).with_name('seed_state.json')
+HISTORY_DAYS = 60          # hur länge prishistoriken sparas
+REGULAR_WINDOW = 30        # ordinarie pris = typiskt pris de senaste 30 dagarna
+MIN_HISTORY_DAYS = 7       # minst så många dagars historik innan rabatt räknas fram ur historiken
+MIN_DISCOUNT = 5           # procent; mindre prisskillnader räknas inte som erbjudande
 
 
 def write_json_atomic(path, obj, gz=True):
@@ -87,6 +91,8 @@ def run_update(log=print, sources=None):
     offers = [o for o in offers if allowed_url(o.get('url'))]
     unique = {(o['key'], o['url'], o['pack']): o for o in offers}
     offers = list(unique.values())
+    deals = apply_history(offers, now)
+    log(f'Erbjudanden med rabatt mot ordinarie pris: {deals}')
     write_json_atomic(config.WWW_DIR / 'offers.json', {'checkedAt': now, 'offers': offers})
     config.STATE_DIR.mkdir(parents=True, exist_ok=True)
     write_json_atomic(config.STATE_DIR / 'state.json', state, gz=False)
@@ -95,3 +101,55 @@ def run_update(log=print, sources=None):
     summary['_total'] = dict(offers=len(offers), colors=len({o['key'] for o in offers}), requests=http.requests)
     log(f'Klart: {len(offers)} erbjudanden för {summary["_total"]["colors"]} färger ({http.requests} anrop).')
     return status, summary
+
+
+def _offer_id(o):
+    return f"{o['key']}|{o['url']}|{o['pack']}"
+
+
+def apply_history(offers, now_iso, history_path=None):
+    """Sparar dagens pris per erbjudande och sätter ordinarie pris + rabatt.
+
+    Ordinarie pris tas i första hand från butiken (listpris/pris före rabatt). Annars används
+    medianpriset de senaste 30 dagarna (minst 7 dagars historik). Returnerar antal erbjudanden med rabatt.
+    """
+    import statistics
+    path = Path(history_path or (config.STATE_DIR / 'price_history.json'))
+    try:
+        history = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        history = {}
+    today = now_iso[:10]
+    day = datetime.date.fromisoformat(today)
+    cutoff_keep = (day - datetime.timedelta(days=HISTORY_DAYS)).isoformat()
+    cutoff_window = (day - datetime.timedelta(days=REGULAR_WINDOW)).isoformat()
+    deals = 0
+    for o in offers:
+        o.pop('regular', None); o.pop('regularSource', None); o.pop('discount', None)
+        if o.get('kind') != 'fixed' or not isinstance(o.get('price'), (int, float)):
+            continue
+        h = history.setdefault(_offer_id(o), {})
+        past = [v for d, v in h.items() if cutoff_window <= d < today and isinstance(v, (int, float))]
+        h[today] = o['price']
+        regular, source = None, None
+        lp = o.get('listPrice')
+        if isinstance(lp, (int, float)) and lp > o['price']:
+            regular, source = lp, 'butik'
+        elif len(past) >= MIN_HISTORY_DAYS:
+            med = statistics.median(past)
+            if med > o['price']:
+                regular, source = round(med), 'historik'
+        if regular:
+            pct = round(100 * (regular - o['price']) / regular)
+            if pct >= MIN_DISCOUNT:
+                o['regular'], o['regularSource'], o['discount'] = regular, source, pct
+                deals += 1
+    live_ids = {_offer_id(o) for o in offers}
+    for k in list(history):
+        h = {d: v for d, v in history[k].items() if d >= cutoff_keep}
+        if h and (k in live_ids or max(h) >= cutoff_window):
+            history[k] = h
+        else:
+            del history[k]
+    write_json_atomic(path, history, gz=False)
+    return deals

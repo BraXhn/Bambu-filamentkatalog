@@ -115,7 +115,24 @@ def _parse(page, url, matcher, now):
     except (KeyError, TypeError, ValueError):
         pass
     shipping = 0 if price >= 1099 else ship
-    return dict(key=matcher.key(d), shop=SHOP, title=title, url=offer.get('url') or url, price=price,
+    list_price = _crossed_price(page, price)
+    return dict(key=matcher.key(d), shop=SHOP, title=title, url=offer.get('url') or url, price=price, listPrice=list_price,
                 shipping=shipping, fee=0, weight=weight, pack=pack, kind='fixed', condition='Ny', endAt=None,
                 shippingNote='Standardfrakt i Sverige. Fri frakt från 1 099 kr.',
                 sourceNote='Produktsida och svenska fraktvillkor. I lager vid kontroll.', checkedAt=now)
+
+
+def _crossed_price(page, price):
+    """Överstruket/tidigare pris i prisblocket om butiken visar ett (annars None)."""
+    block = re.search(r'<div class="p-price">(.*?)</div>', page, re.S)
+    if not block:
+        return None
+    m = re.search(r'(?:class="[^"]*(?:old|crossed|strike|before|previous|uvp)[^"]*"[^>]*>|<(?:del|s)\b[^>]*>)\s*'
+                  r'([\d\s\xa0.]+)(?:&nbsp;|\s)*kr', block.group(1), re.I)
+    if not m:
+        return None
+    try:
+        old = int(re.sub(r'[^\d]', '', m.group(1)))
+    except ValueError:
+        return None
+    return old if price < old < price * 3 else None
