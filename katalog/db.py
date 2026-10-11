@@ -1,5 +1,6 @@
 """SQLite-lagring för användare, sessioner, ägda filament och prisuppdateringar."""
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -76,9 +77,23 @@ def _connect():
     conn = sqlite3.connect(str(config.DB_PATH), timeout=15, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA foreign_keys=ON')
-    conn.execute('PRAGMA journal_mode=WAL')
+    # WAL kräver delat minne (mmap) som Unraids /mnt/user (FUSE) inte hanterar pålitligt.
+    # Vanlig journal räcker gott för den här mängden skrivningar.
+    conn.execute('PRAGMA journal_mode=' + ('WAL' if os.environ.get('SQLITE_WAL', '').lower() == 'true' else 'DELETE'))
+    conn.execute('PRAGMA busy_timeout=15000')
     conn.execute('PRAGMA synchronous=NORMAL')
     return conn
+
+
+def close_thread_conn():
+    """Stänger trådens anslutning (anropas när en förfrågan är klar)."""
+    c = getattr(_local, 'conn', None)
+    if c is not None:
+        _local.conn = None
+        try:
+            c.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def conn():
