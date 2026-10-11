@@ -327,6 +327,39 @@ def _safe_href(url):
     return e(url) if str(url or '').startswith('https://') else '#'
 
 
+def _eur(v):
+    return f'{v:.2f} €'.replace('.', ',')
+
+
+def _bulk_box(sh):
+    """Tydlig redovisning av Bambu Lab:s mängdrabatt (och hur nära nästa nivå man är)."""
+    from . import config
+    if not sh.get('bulk'):
+        return ''
+    items = ''
+    for b in sh['bulk']:
+        if b['tier']:
+            pr = ' · '.join(f'{k.lower()} {_eur(eur)} ≈ {_kr(kr)}/rulle' for k, (eur, kr) in b['prices'].items())
+            items += (f'<li><b>{e(b["type"])}</b>: {b["rolls"]} rullar → nivå {b["tier"]}+ ({e(pr)}). '
+                      f'<b>Du sparar {_kr(b["saved"])}.</b>')
+        else:
+            items += f'<li><b>{e(b["type"])}</b>: {b["rolls"]} {"rulle" if b["rolls"] == 1 else "rullar"} – ingen mängdrabatt ännu.'
+        if b['next']:
+            n = b['next']
+            pr = ' · '.join(f'{k.lower()} {_kr(v)}' for k, v in n['prices'].items())
+            items += (f' <span class="muted">Lägg till {n["missing"]} {"rulle" if n["missing"] == 1 else "rullar"} '
+                      f'{e(b["type"])} (valfri färg) för {n["min"]}+-priset: {e(pr)} per rulle.</span>')
+        items += '</li>'
+    tiers = ', '.join(f'{n}+ rullar: spole {_eur(p["Spole"])} / refill {_eur(p["Refill"])}' for n, p in config.BAMBU_BULK_TIERS)
+    head = (f'Mängdrabatt hos Bambu Lab: −{_kr(sh["discount"])}, inräknad i summan.' if sh.get('discount')
+            else 'Mängdrabatt hos Bambu Lab: inte uppnådd ännu.')
+    return (f'<div class="msg ok" style="margin:0 0 12px"><b>{head}</b>'
+            f'<ul style="margin:6px 0;padding-left:18px">{items}</ul>'
+            f'<span style="font-size:12px">Bambu drar rabatten automatiskt i kassan. Villkor: {e(tiers)} per rulle à 1 kg av '
+            f'{e(", ".join(config.BAMBU_BULK_TYPES))}. Kalkylen räknar ihop rullar av samma filamenttyp '
+            f'(färger och spole/refill blandas) – kontrollera beloppet i kassan.</span></div>')
+
+
 def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg=''):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     if not items:
@@ -345,6 +378,7 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
     summary = f"""<section class="card"><div class="stats">
 <div class="stat"><span>Uppskattat totalt</span><strong style="font-size:24px">{_kr(t['total'])}</strong></div>
 <div class="stat"><span>Varor</span><strong>{_kr(t['goods'])}</strong></div>
+{f'<div class="stat"><span>Mängdrabatt Bambu Lab</span><strong style="color:var(--ok,#16a34a)">−{_kr(t["discount"])}</strong></div>' if t.get('discount') else ''}
 <div class="stat"><span>Frakt{' (delvis uppskattad)' if t['estimated'] else ''}</span><strong>{_kr(t['shipping'])}</strong></div>
 <div class="stat"><span>Köparskydd (Tradera)</span><strong>{_kr(t['fee'])}</strong></div></div>
 <p class="sub" style="margin:0">{t['units']} {'spole' if t['units'] == 1 else 'spolar'} hos {len(plan['shops'])} {'butik/säljare' if len(plan['shops']) == 1 else 'butiker/säljare'}{est}.
@@ -359,15 +393,21 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
             disc = f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else ''
             rows += (f'<tr><td><b>{e(name)}</b>{disc}<br><span class="muted" style="font-size:12px">{e(o.get("title", ""))}</span></td>'
                      f'<td class="hide-sm">{e(o.get("pack", ""))} {o.get("weight") or "?"} g</td>'
-                     f'<td class="right">{l["qty"]} × {_kr(o["price"])}</td><td class="right"><b>{_kr(o["price"] * l["qty"])}</b></td>'
+                     + (f'<td class="right"><span style="white-space:nowrap">{l["qty"]} × <s class="muted">{_kr(o["price"])}</s></span> '
+                        f'<span style="white-space:nowrap">{_kr(l["bulkPrice"])}</span>'
+                        f'<br><span class="badge ok">mängdrabatt</span></td>'
+                        f'<td class="right"><b>{_kr(l["bulkPrice"] * l["qty"])}</b></td>' if l.get('bulkPrice') else
+                        f'<td class="right">{l["qty"]} × {_kr(o["price"])}</td><td class="right"><b>{_kr(o["price"] * l["qty"])}</b></td>')
+                     + 
                      f'<td class="right"><a class="btn small" href="{_safe_href(o.get("url"))}" target="_blank" rel="noopener">Köp här ↗</a></td></tr>')
+        bulk = _bulk_box(sh)
         ship = f'{_kr(sh["shipping"])}{" (uppskattad)" if sh["estimated"] else ""}'
         fee = f' · köparskydd {_kr(sh["fee"])}' if sh['fee'] else ''
         home = f' <a href="{_safe_href(sh["home"])}" target="_blank" rel="noopener" style="font-size:13px">Till butiken ↗</a>' \
             if sh['home'] and not sh['shop'].startswith('Tradera') else ''
         shops += f"""<section class="card"><div class="row" style="justify-content:space-between;align-items:baseline">
 <h2>{e(sh['shop'])}{home}</h2><strong style="font-size:18px">{_kr(sh['total'])}</strong></div>
-<p class="sub">Varor {_kr(sh['goods'])} · frakt {ship}{fee}. {e(sh['note'])}</p>
+<p class="sub">Varor {_kr(sh['goods'])}{f" · mängdrabatt −{_kr(sh['discount'])}" if sh.get('discount') else ''} · frakt {ship}{fee}. {e(sh['note'])}</p>{bulk}
 <div class="tablewrap"><table><thead><tr><th>Filament</th><th class="hide-sm">Förpackning</th><th class="right">Antal</th>
 <th class="right">Summa</th><th></th></tr></thead><tbody>{rows}</tbody></table></div></section>"""
     missing = ''

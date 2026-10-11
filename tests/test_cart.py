@@ -44,6 +44,26 @@ class Planner(unittest.TestCase):
         self.assertEqual(r['shops'], [])
         self.assertEqual(sorted((m['key'], m['qty']) for m in r['missing']), [('PLA Basic|1', 1), ('PLA Basic|3', 2)])
 
+    def test_bambu_bulk_discount(self):
+        keys = [f'PLA Basic|{i}' for i in '1234']
+        offers = []
+        for i, k in enumerate(keys):
+            offers.append(offer(k, '3DJake Sverige', 190, 115, f'https://www.3djake.se/{i}', pack='Refill'))
+            offers.append(dict(offer(k, 'Bambu Lab EU', 253, None, f'https://eu.store.bambulab.com/products/p?id={i}',
+                                     pack='Refill'), fx=11.0))
+        # 4 refills: 4+-nivån ger 15,99 € × 11 = 176 kr/st → 704 + 99 frakt < 3DJake 760 + 115.
+        r = plan([(k, 1, 'Refill') for k in keys], offers, CAT, NOW)
+        self.assertEqual([s['shop'] for s in r['shops']], ['Bambu Lab EU'])
+        b = r['shops'][0]
+        self.assertEqual((b['goods'], b['discount'], b['total']), (1012, 308, 1012 - 308 + 99))
+        self.assertEqual(b['bulk'][0]['tier'], 4)
+        self.assertEqual(b['bulk'][0]['next']['missing'], 2)
+        self.assertTrue(all(l['bulkPrice'] == 176 for l in b['lines']))
+        self.assertEqual(r['totals']['discount'], 308)
+        # 3 refills når ingen nivå → 3DJake blir billigast.
+        r = plan([(k, 1, 'Refill') for k in keys[:3]], offers, CAT, NOW)
+        self.assertEqual([s['shop'] for s in r['shops']], ['3DJake Sverige'])
+
 
 if __name__ == '__main__':
     unittest.main()

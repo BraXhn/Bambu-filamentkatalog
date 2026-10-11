@@ -69,6 +69,29 @@ BAMBU_SYNC_HOURS = float(os.environ.get('BAMBU_SYNC_HOURS', '6') or 0)
 BAMBU_SHIPPING_SEK = _int('BAMBU_SHIPPING_SEK', 99)
 BAMBU_FREE_FROM_SEK = _int('BAMBU_FREE_FROM_SEK', 0)
 
+# Bambu Lab EU:s mängdrabatt på filament (pris per rulle i euro, dras automatiskt i kassan).
+# Format: 'antal:spole/refill,...', tomt = ingen mängdrabatt. Rullar räknas per filamenttyp (färger blandas).
+# Källa: eu.store.bambulab.com/pages/bambu-filament (oktober 2026).
+BAMBU_BULK_TYPES = [t.strip() for t in os.environ.get(
+    'BAMBU_BULK_TYPES', 'PLA Basic,PLA Matte,PETG HF,PETG Translucent,ABS,PLA Silk+').split(',') if t.strip()]
+
+
+def _tiers(raw):
+    out = []
+    for part in raw.split(','):
+        try:
+            n, prices = part.split(':')
+            spool, refill = (float(x.replace(' ', '') or 0) for x in prices.split('/'))
+            if int(n) > 1:
+                out.append((int(n), {'Spole': spool, 'Refill': refill}))
+        except ValueError:
+            if part.strip():
+                print(f'[varning] Ogiltig BAMBU_BULK_TIERS-post ignoreras: {part}')
+    return sorted(out, key=lambda t: t[0])
+
+
+BAMBU_BULK_TIERS = _tiers(os.environ.get('BAMBU_BULK_TIERS', '4:18.99/15.99,6:16.99/13.99'))
+
 # Prishämtning
 PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera,bambulab').split(',') if s.strip()]
 HTTP_DELAY = float(os.environ.get('PRICE_HTTP_DELAY', '1.2'))   # sekunder mellan anrop per sajt
