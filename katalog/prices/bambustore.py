@@ -1,4 +1,4 @@
-"""Bambu Lab EU-butik (Shopify): pris, ordinarie pris och lagerstatus per färg och förpackning.
+"""Bambu Lab EU-butik: pris och lagerstatus per färg och förpackning, från produktsidornas JSON-LD.
 
 Butiken prissätter i euro; priset räknas om till kronor med ECB:s dagskurs. Butiken släpper bara
 igenom europeiska besökare (andra skickas till USA-butiken), vilket hämtningen kontrollerar.
@@ -13,7 +13,6 @@ from .common import FetchError
 SHOP = 'Bambu Lab EU'
 BASE = 'https://eu.store.bambulab.com'
 ECB = 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml'
-MAX_PAGES = 12
 
 
 def eur_to_sek(http, state, log):
@@ -52,6 +51,7 @@ def _pack(text):
 
 
 def products_to_offers(products, catalog, rate, now):
+    """Shopify-format (products.json) – används för sparade underlag och om API:t öppnas igen."""
     by_code = {d['code']: d for d in catalog if d.get('code')}
     offers = []
     for p in products:
@@ -60,62 +60,101 @@ def products_to_offers(products, catalog, rate, now):
             if not v.get('available'):
                 continue
             opts = [v.get(f'option{i}') or '' for i in (1, 2, 3)]
-            code = next((m.group(1) for o in opts for m in [re.search(r'\((\d{5})\)', o)] if m), None)
-            d = by_code.get(code)
-            if not d:
-                continue
-            pack = next((_pack(o) for o in opts if _pack(o)), None)
-            weight = next((_weight(o) for o in opts if _weight(o)), None)
-            if not pack or not weight:
-                continue
             try:
                 eur = float(v['price'])
+                cmp = float(v.get('compare_at_price') or 0)
             except (KeyError, TypeError, ValueError):
                 continue
-            if eur <= 0:
-                continue
-            price = round(eur * rate)
-            list_price = None
-            try:
-                cmp = float(v.get('compare_at_price') or 0)
-                if cmp > eur:
-                    list_price = round(cmp * rate)
-            except (TypeError, ValueError):
-                pass
-            color = re.sub(r'\s*\(\d{5}\)', '', next(o for o in opts if code in o)).strip()
-            size = f'{weight / 1000:g} kg'.replace('.', ',') if weight >= 1000 else f'{weight} g'
-            offers.append(dict(
-                key=d['type'] + '|' + (d['code'] or d['name']), shop=SHOP,
-                title=f"Bambu Lab {p.get('title', '')} {color} · {size} · {pack}",
-                url=f'{BASE}/products/{handle}?variant={v.get("id")}' if v.get('id') else f'{BASE}/products/{handle}',
+            o = _offer(by_code, p.get('title', ''), opts, eur, cmp, rate,
+                       f'{BASE}/products/{handle}?variant={v.get("id")}' if v.get('id') else f'{BASE}/products/{handle}',
+                       'EUR', now)
+            if o:
+                offers.append(o)
+    return offers
+
+
+def _offer(by_code, product_title, opts, amount, compare, rate, url, currency, now):
+    code = next((m.group(1) for o in opts for m in [re.search(r'\((\d{5})\)', o)] if m), None)
+    d = by_code.get(code)
+    if not d or amount <= 0:
+        return None
+    pack = next((_pack(o) for o in opts if _pack(o)), None)
+    weight = next((_weight(o) for o in opts if _weight(o)), None)
+    if not pack or not weight:
+        return None
+    factor = 1.0 if currency == 'SEK' else rate
+    price = round(amount * factor)
+    list_price = round(compare * factor) if compare and compare > amount else None
+    color = re.sub(r'\s*\(\d{5}\)', '', next(o for o in opts if code in o))
+    color = re.sub(r'^.*? - ', '', color).strip()
+    size = f'{weight / 1000:g} kg'.replace('.', ',') if weight >= 1000 else f'{weight} g'
+    if currency == 'SEK':
+        note = 'I lager enligt butiken.'
+    else:
+        sym = '€' if currency == 'EUR' else currency
+        note = (f'Pris {amount:.2f} {sym} ≈ {price} kr (kurs {factor:.2f}). '.replace('.', ',') + 'I lager enligt butiken.')
+    return dict(key=d['type'] + '|' + (d['code'] or d['name']), shop=SHOP,
+                title=f'Bambu Lab {product_title} {color} · {size} · {pack}', url=url,
                 price=price, listPrice=list_price, shipping=None, fee=0, weight=weight, pack=pack, kind='fixed',
                 condition='Ny', endAt=None,
-                shippingNote='Frakt visas i kassan. Betalas i euro.',
-                sourceNote=(f'Pris {eur:.2f} € ≈ {price} kr (ECB-kurs {rate:.2f}). '.replace('.', ',')
-                            + 'I lager enligt butiken.'),
-                checkedAt=now))
+                shippingNote='Frakt visas i kassan.' + ('' if currency == 'SEK' else ' Betalas i euro.'),
+                sourceNote=note, checkedAt=now)
+
+
+def page_to_offers(page, catalog, rates, now):
+    """Produktsidans JSON-LD (ProductGroup med hasVariant): 'PLA Basic - Black (10101) / Refill / 1kg'."""
+    by_code = {d['code']: d for d in catalog if d.get('code')}
+    offers = []
+    for block in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', page, re.S | re.I):
+        try:
+            data = json.loads(block)
+        except ValueError:
+            continue
+        for g in data if isinstance(data, list) else [data]:
+            if not isinstance(g, dict) or g.get('@type') != 'ProductGroup':
+                continue
+            for v in g.get('hasVariant') or []:
+                offer = (v or {}).get('offers') or {}
+                if isinstance(offer, list):
+                    offer = offer[0] if offer else {}
+                if not str(offer.get('availability', '')).endswith('InStock'):
+                    continue
+                currency = str(offer.get('priceCurrency') or 'EUR').upper()
+                if currency not in rates:
+                    continue
+                try:
+                    amount = float(offer.get('price'))
+                except (TypeError, ValueError):
+                    continue
+                url = offer.get('url') or g.get('url') or ''
+                if not url.startswith(BASE + '/'):
+                    continue
+                opts = [x.strip() for x in str(v.get('name', '')).split('/')]
+                o = _offer(by_code, g.get('name', ''), opts, amount, 0, rates[currency], url, currency, now)
+                if o:
+                    offers.append(o)
     return offers
 
 
 def run(http, matcher, state, log, now):
     rate = eur_to_sek(http, state, log)
-    products, page = [], 1
-    while page <= MAX_PAGES:
+    rates = {'EUR': rate, 'SEK': 1.0}
+    handles = sorted({m.group(1) for d in matcher.data
+                      for m in [re.search(r'/products/([a-z0-9-]+)', d.get('source') or '')] if m})
+    offers, ok, missing = [], 0, 0
+    for handle in handles:
         try:
-            _, body = http.get(f'{BASE}/products.json?limit=250&page={page}')
+            _, page = http.get(f'{BASE}/products/{handle}')
         except FetchError as e:
             if 'omdirigering' in str(e):
                 raise FetchError('Bambu Lab skickade vidare till en annan butik (butiken svarar bara europeiska '
                                  'besökare)') from None
-            raise
-        try:
-            batch = json.loads(body).get('products') or []
-        except ValueError:
-            raise FetchError('oväntat svar från Bambu Lab-butiken') from None
-        if not batch:
-            break
-        products += batch
-        page += 1
-    offers = products_to_offers(products, matcher.data, rate, now)
-    log(f'  Bambu Lab: {len(products)} produkter, {len(offers)} erbjudanden i lager (1 € = {rate:.2f} kr)')
+            missing += 1
+            continue
+        ok += 1
+        offers += page_to_offers(page, matcher.data, rates, now)
+    if ok == 0:
+        raise FetchError('inga produktsidor kunde hämtas från Bambu Lab-butiken')
+    log(f'  Bambu Lab: {ok} produktsidor ({missing} saknas i EU-butiken), {len(offers)} erbjudanden i lager '
+        f'(1 € = {rate:.2f} kr)')
     return offers

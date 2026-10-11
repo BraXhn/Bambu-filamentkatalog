@@ -121,9 +121,44 @@ class BambuStore(unittest.TestCase):
         self.assertTrue(o['url'].startswith('https://eu.store.bambulab.com/products/pla-translucent?variant='))
         self.assertTrue(all(x['listPrice'] is None or x['listPrice'] > x['price'] for x in offers))
 
-    def test_ecb_rate_and_redirect(self):
+    PAGE = ld({'@context': 'https://schema.org', '@type': 'ProductGroup', 'name': 'PLA Basic',
+               'url': bambustore.BASE + '/products/pla-basic-filament',
+               'hasVariant': [
+                   {'@type': 'Product', 'name': 'PLA Basic - Black (10101) / Refill / 1kg',
+                    'offers': {'@type': 'Offer', 'price': '15.99', 'priceCurrency': 'EUR',
+                               'availability': 'https://schema.org/InStock',
+                               'url': bambustore.BASE + '/products/pla-basic-filament?id=1'}},
+                   {'@type': 'Product', 'name': 'PLA Basic - Black (10101) / Filament with spool / 1kg',
+                    'offers': {'@type': 'Offer', 'price': '18.99', 'priceCurrency': 'EUR',
+                               'availability': 'https://schema.org/InStock',
+                               'url': bambustore.BASE + '/products/pla-basic-filament?id=2'}},
+                   {'@type': 'Product', 'name': 'PLA Basic - Jade White (10100) / Refill / 1kg',
+                    'offers': {'@type': 'Offer', 'price': '15.99', 'priceCurrency': 'EUR',
+                               'availability': 'https://schema.org/OutOfStock',
+                               'url': bambustore.BASE + '/products/pla-basic-filament?id=3'}},
+                   {'@type': 'Product', 'name': 'PLA Basic - Black (10101) / Refill / 1kg',
+                    'offers': {'@type': 'Offer', 'price': '1', 'priceCurrency': 'EUR',
+                               'availability': 'https://schema.org/InStock',
+                               'url': 'https://evil.example/x'}},
+               ]})
+
+    def test_product_page_json_ld(self):
+        offers = bambustore.page_to_offers(self.PAGE, CATALOG, {'EUR': 11.0, 'SEK': 1.0}, 'NOW')
+        self.assertEqual(sorted((o['key'], o['pack'], o['price'], o['weight']) for o in offers),
+                         [('PLA Basic|10101', 'Refill', 176, 1000), ('PLA Basic|10101', 'Spole', 209, 1000)])
+        self.assertTrue(all(o['shop'] == 'Bambu Lab EU' and o['listPrice'] is None for o in offers))
+
+    def test_run_product_pages_and_redirect(self):
         ecb = '<gesmes:Envelope xmlns:gesmes="x"><Cube><Cube time="2026-10-10"><Cube currency="SEK" rate="11.12"/></Cube></Cube></gesmes:Envelope>'
-        pages = {bambustore.ECB: ecb, bambustore.BASE + '/products.json?limit=250&page=1': FetchError('omdirigering till otillåten adress nekad')}
+        page_url = bambustore.BASE + '/products/pla-basic-filament'
+        http = FakeHttp({bambustore.ECB: ecb, page_url: self.PAGE})
+        offers = bambustore.run(http, Matcher(CATALOG), {}, lambda m: None, 'NOW')
+        self.assertEqual(len(offers), 2)
+        self.assertIn(page_url, http.calls)
+        self.assertFalse(any('products.json' in u for u in http.calls))
+        with self.assertRaises(FetchError):  # inga sidor alls
+            bambustore.run(FakeHttp({bambustore.ECB: ecb}), Matcher(CATALOG), {}, lambda m: None, 'NOW')
+        pages = {bambustore.ECB: ecb, page_url: FetchError('omdirigering till otillåten adress nekad')}
         with self.assertRaises(FetchError) as cm:
             bambustore.run(FakeHttp(pages), Matcher(CATALOG), {}, lambda m: None, 'NOW')
         self.assertIn('europeiska', str(cm.exception))
