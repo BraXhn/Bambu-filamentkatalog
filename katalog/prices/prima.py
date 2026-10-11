@@ -28,12 +28,20 @@ def run(http, matcher, state, log, now):
             price = round(float(str(offer.get('price')).replace(',', '.')))
         except (TypeError, ValueError):
             continue
+        list_price = None
+        for spec in offer.get('priceSpecification') or []:
+            try:
+                if isinstance(spec, dict) and spec.get('priceType', '').endswith('ListPrice'):
+                    lp = round(float(str(spec.get('price')).replace(',', '.')))
+                    list_price = lp if price < lp < price * 3 else None
+            except (TypeError, ValueError):
+                pass
         stock = re.search(r'Lagersaldo:\s*<strong>\s*([^<]+?)\s*</strong>', page)
         in_stock = str(offer.get('availability', '')).endswith('InStock') and not (stock and stock.group(1) in ('0', '-'))
         if not in_stock or price <= 0:
             continue
         stock_txt = f'Lagersaldo {text(stock.group(1))}.' if stock else 'I lager.'
-        offers.append(dict(key=t['key'], shop=SHOP, title=t['title'], url=t['url'], price=price, shipping=None, fee=0,
+        offers.append(dict(key=t['key'], shop=SHOP, title=t['title'], url=t['url'], price=price, listPrice=list_price, shipping=None, fee=0,
                            weight=t.get('weight', 1000), pack=t.get('pack', 'Spole'), kind='fixed', condition='Ny',
                            endAt=None, shippingNote='Frakt visas i kassan. Fri frakt från 1 000 kr.',
                            sourceNote=stock_txt, checkedAt=now))

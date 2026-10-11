@@ -151,7 +151,12 @@ def _offer(a, i, key, matcher, now):
     if not price:
         return None
     seller = (a.get('seller') or {}).get('alias') or i.get('sellerAlias', '')
-    return dict(key=key, shop='Tradera · ' + seller, title=title, url=i['itemUrl'], price=price, shipping=ship, fee=fee,
+    list_price = None
+    before = a.get('priceBeforeDiscount') or i.get('priceBeforeDiscount') or 0
+    if kind == 'fixed' and isinstance(before, (int, float)) and price < before < price * 3:
+        list_price = round(before)
+    return dict(key=key, shop='Tradera · ' + seller, title=title, url=i['itemUrl'], price=price, listPrice=list_price,
+                shipping=ship, fee=fee,
                 weight=weight, pack=pack, kind=kind, condition=condition, endAt=a.get('endDate'),
                 shippingNote='Billigaste angivna frakt inom Sverige. ' + (
                     'Obligatoriskt köparskydd inkluderat.' if fee else 'Eventuellt valfritt köparskydd tillkommer.'),

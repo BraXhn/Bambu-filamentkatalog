@@ -4,6 +4,7 @@ Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och an
 
 - **Katalog:** 229 färgvarianter inom 38 filamenttyper, med sökning, filter, kort- och tabellvy och CSV-export.
 - **Prisjämförelse:** pris inklusive frakt och köparskydd, uppdelat på vikt och refill/spole. Auktioner visas separat.
+- **Billigast och erbjudanden:** sortera på lägsta aktuella pris eller största rabatt, och filtrera fram aktuella erbjudanden med rabatt i procent mot ordinarie pris.
 - **Användare:** varje användare har sina egna ”Jag har detta filament”-markeringar, sparade på kontot och synliga på alla enheter.
 - **Synk från Bambu Lab:** koppla ditt Bambu Lab-konto så markeras spolarna i ditt filamentbibliotek automatiskt som ”Jag har”, med gram kvar per färg.
 - **Administration i webbläsaren:** lägg till och ta bort användare, återställ lösenord, lås upp konton, se prisuppdateringarnas status och starta en uppdatering direkt.
@@ -82,6 +83,12 @@ Skydd som är inbyggt:
 - Om en källa inte svarar, eller plötsligt ger noll träffar när den tidigare gav många, behålls dess tidigare priser. Statusen visas under Administration.
 - En körning tar ungefär 10–15 minuter, eftersom anropen sprids ut för att inte belasta butikerna.
 - Flödet *Kontrollera prishämtning* i GitHub Actions kör hämtningen varje måndag mot de riktiga sidorna. Det varnar om en butik har ändrat sitt sidformat.
+
+**Ordinarie pris och rabatt:**
+- I första hand används butikens egen uppgift: Traderas pris före rabatt, 3D Primas listpris, eller ett överstruket pris hos 3DJake.
+- Annars används det typiska priset (medianen) för samma erbjudande de senaste 30 dagarna. Det kräver minst 7 dagars historik, så sådana rabatter syns först efter ungefär en vecka.
+- Bara rabatter på minst 5 % visas.
+- Prishistoriken sparas i `/data/state/price_history.json`.
 
 Lägst hittat betyder lägst bland de kontrollerade erbjudandena, inte garanterat marknadens lägsta pris. Produktbilder och produktuppgifter kommer från respektive leverantör.
 
