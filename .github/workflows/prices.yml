@@ -7,7 +7,7 @@ on:
     inputs:
       sources:
         description: 'Källor (kommaseparerat)'
-        default: '3djake,3dprima,tradera'
+        default: '3djake,3dprima,tradera'   # Bambu Lab EU svarar inte GitHubs amerikanska servrar
   schedule:
     - cron: '17 6 * * 1'   # måndagar
 

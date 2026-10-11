@@ -9,13 +9,14 @@ import traceback
 from pathlib import Path
 
 from .. import config
-from . import jake, prima, tradera
+from . import bambustore, jake, prima, tradera
 from .common import Http, Matcher, allowed_url
 
 SOURCES = {
     '3djake': ('3DJake', jake, lambda o: o['shop'] == jake.SHOP),
     '3dprima': ('3D Prima', prima, lambda o: o['shop'] == prima.SHOP),
     'tradera': ('Tradera', tradera, lambda o: o['shop'].startswith('Tradera')),
+    'bambulab': ('Bambu Lab EU', bambustore, lambda o: o['shop'] == bambustore.SHOP),
 }
 SEED_STATE = Path(__file__).with_name('seed_state.json')
 HISTORY_DAYS = 60          # hur länge prishistoriken sparas
@@ -88,7 +89,7 @@ def run_update(log=print, sources=None):
             summary[sid] = dict(label=label, status='failed', offers=len(prev), previous=len(prev),
                                 error=str(e)[:300], seconds=round(time.time() - t0))
     # Bara https-länkar till kända butiker publiceras (skydd mot manipulerade källsidor).
-    offers = [o for o in offers if allowed_url(o.get('url'))]
+    offers = [o for o in offers if allowed_url(o.get('url')) and 'ecb.europa.eu' not in o.get('url', '')]
     unique = {(o['key'], o['url'], o['pack']): o for o in offers}
     offers = list(unique.values())
     deals = apply_history(offers, now)

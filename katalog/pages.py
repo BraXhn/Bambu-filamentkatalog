@@ -158,7 +158,7 @@ def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', s
     runs_table = (f'<div class="tablewrap mt"><table><thead><tr><th>Startad</th><th>Resultat</th><th>Källor (antal erbjudanden)</th></tr>'
                   f'</thead><tbody>{rows}</tbody></table></div>') if rows else ''
     prices = f"""<section class="card" id="priser"><h2>Prisuppdatering</h2>
-<p class="sub">Priser hämtas automatiskt från 3DJake, 3D Prima och Tradera. Om en källa inte svarar behålls dess senaste priser.</p>
+<p class="sub">Priser hämtas automatiskt från 3DJake, 3D Prima, Bambu Lab EU och Tradera. Om en källa inte svarar behålls dess senaste priser.</p>
 <div class="stats"><div class="stat"><span>Senaste körning</span><strong>{last_txt}</strong></div>
 <div class="stat"><span>Nästa schemalagda</span><strong>{e(next_run)}</strong></div>
 <div class="stat"><span>Erbjudanden just nu</span><strong>{e(offers_info)}</strong></div></div>
