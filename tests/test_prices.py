@@ -216,10 +216,16 @@ class Experten(unittest.TestCase):
             p(3, 'Bambu Lab - PETG HF - Lake Blue - 1.75mm - 1kg', '330.00', available=False),
             p(4, 'Bambu Lab - Hotend - X1', '500.00'),
             p(5, 'Bambu Lab - PLA Pure - Apricot - 1.75mm - 1kg', '325.00'),
+            p(6, 'Bambu Lab - PLA Basic - Stark rosa - 1,75 mm - 1 kg - Refill', '299.00'),
+            p(7, 'Bambu Lab - PLA Basic - Okänd ton rosa - 1,75 mm - 1 kg - Refill', '299.00'),
         ]
         offers = experten.products_to_offers(products, Matcher(CATALOG), 'NOW')
         got = sorted((o['key'], o['price'], o['listPrice'], o['pack'], o['weight']) for o in offers)
-        self.assertEqual(got, [('PLA Basic|10101', 299, 349, 'Spole', 1000), ('PLA Matte|11803', 340, None, 'Refill', 1000)])
+        hot = next((d for d in CATALOG if d['type'] == 'PLA Basic' and d['name'] == 'Hot Pink'), None)
+        want = [('PLA Basic|10101', 299, 349, 'Spole', 1000), ('PLA Matte|11803', 340, None, 'Refill', 1000)]
+        if hot:
+            want.append((Matcher.key(hot), 299, None, 'Refill', 1000))
+        self.assertEqual(got, sorted(want))     # 'Okänd ton rosa' får inte bli Pink
         self.assertTrue(all(o['url'].startswith(experten.BASE + '/products/h') for o in offers))
 
     def test_run_collections(self):

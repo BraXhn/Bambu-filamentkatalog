@@ -30,7 +30,7 @@ WORDS = {
     'mörkchoklad': 'dark chocolate', 'lattebrun': 'latte brown', 'syrenlila': 'lilac purple', 'kolgrå': 'charcoal',
     'marinblå': 'marine blue', 'körsbärsrosa': 'cherry pink', 'lavendel': 'lavender', 'krämvit': 'cream',
     'skoggrön': 'forest green', 'limegrön': 'lime green', 'jordnötsbrun': 'peanut brown', 'champagne': 'champagne',
-    'roséguld': 'rose gold', 'titangrå': 'titan gray',
+    'roséguld': 'rose gold', 'titangrå': 'titan gray', 'stark': 'hot',
 }
 TYPES = {
     'pla matt': 'pla matte', 'pla-trä': 'pla wood', 'pla trä': 'pla wood', 'pla silke+': 'pla silk+',
@@ -53,6 +53,17 @@ def translate(title):
     return f'{typ} {color}'
 
 
+def _same_color(d, translated, matcher):
+    """Hela färgnamnet måste stämma (t.ex. 'Stark rosa' = Hot Pink får inte bli Pink)."""
+    c = re.sub(r'\([^)]*\)', '', d['name']).strip()
+    c = re.sub(r'^(Matte |ABS |Translucent |Glow )', '', c).replace(' Sparkle', '').replace(' Metallic', '')
+    t = matcher.norm(translated)
+    typ = matcher.norm(d['type'])
+    if t.startswith(typ + ' '):
+        t = t[len(typ) + 1:]
+    return matcher.norm(c) == t
+
+
 def _weight(title):
     m = re.search(r'(\d+(?:[.,]\d+)?)\s*(kg|g)\b(?!\S)', title, re.I)
     if not m:
@@ -71,7 +82,7 @@ def products_to_offers(products, matcher, now):
             continue
         name = translate(title)
         d = matcher.match(name) if name else None
-        if not d:
+        if not d or not _same_color(d, name, matcher):
             continue
         weight = _weight(title.replace('1,75 mm', '').replace('1.75mm', '').replace('1.75 mm', ''))
         pack = 'Refill' if re.search(r'\brefill\b', title, re.I) else 'Spole'
