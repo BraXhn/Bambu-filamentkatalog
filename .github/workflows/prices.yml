@@ -7,7 +7,7 @@ on:
     inputs:
       sources:
         description: 'Källor (kommaseparerat)'
-        default: '3djake,3dprima,tradera'   # Bambu Lab EU svarar inte GitHubs amerikanska servrar
+        default: '3djake,3dprima,tradera,3dverkstan,3dexperten'   # Bambu Lab EU svarar inte GitHubs amerikanska servrar
   schedule:
     - cron: '17 6 * * 1'   # måndagar
 
@@ -26,7 +26,7 @@ jobs:
         env:
           KATALOG_DATA_DIR: ${{ runner.temp }}/data
           KATALOG_SEED_DIR: ${{ github.workspace }}/dist
-          SOURCES: ${{ inputs.sources || '3djake,3dprima,tradera' }}
+          SOURCES: ${{ inputs.sources || '3djake,3dprima,tradera,3dverkstan,3dexperten' }}
         run: |
           mkdir -p "$KATALOG_DATA_DIR/www"
           cp dist/offers.json "$KATALOG_DATA_DIR/www/"

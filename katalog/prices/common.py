@@ -15,7 +15,8 @@ class FetchError(Exception):
     pass
 
 
-ALLOWED_HOSTS = {'www.3djake.se', 'www.3dprima.com', 'www.tradera.com', 'eu.store.bambulab.com', 'www.ecb.europa.eu'}
+ALLOWED_HOSTS = {'www.3djake.se', 'www.3dprima.com', 'www.tradera.com', 'eu.store.bambulab.com', 'www.ecb.europa.eu',
+                 '3dverkstan.se', '3dexperten.se'}
 
 
 def allowed_url(url):

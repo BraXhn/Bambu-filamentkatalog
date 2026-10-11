@@ -11,7 +11,7 @@ R = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(R))
 
 from katalog import config  # noqa: E402
-from katalog.prices import bambustore, jake, prima, tradera, update  # noqa: E402
+from katalog.prices import bambustore, experten, jake, prima, tradera, update, verkstan  # noqa: E402
 from katalog.prices.common import FetchError, Matcher  # noqa: E402
 
 CATALOG = json.loads((R / 'dist' / 'data.json').read_text(encoding='utf-8'))
@@ -164,6 +164,76 @@ class BambuStore(unittest.TestCase):
         self.assertIn('europeiska', str(cm.exception))
         state = {}
         self.assertEqual(bambustore.eur_to_sek(FakeHttp({bambustore.ECB: ecb}), state, lambda m: None), 11.12)
+
+
+class Verkstan(unittest.TestCase):
+    PRODUCT = {'id': 1, 'name': 'Bambu Lab PLA Basic with Spool &#8211; 1 kg / 1.75 mm', 'type': 'variable',
+               'permalink': verkstan.BASE + '/produkt/pla-basic/', 'sku': '', 'is_in_stock': True,
+               'categories': [{'slug': 'bambu-lab-filament'}], 'prices': {'price': '20000', 'currency_minor_unit': 2}}
+
+    def page(self):
+        import html as h
+        variations = [
+            {'attributes': {'attribute_pa_farg': 'black'}, 'sku': 'A00-K0-1.75-1000-spl', 'display_price': 200,
+             'display_regular_price': 200, 'is_in_stock': True, 'availability_html': '<p>261 i lager</p>', 'variation_id': 11},
+            {'attributes': {'attribute_pa_farg': 'jade-white'}, 'sku': '', 'display_price': 180,
+             'display_regular_price': 200, 'is_in_stock': True, 'availability_html': '<p>3 i lager</p>', 'variation_id': 12},
+            {'attributes': {'attribute_pa_farg': 'red'}, 'sku': 'A00-R0-1.75-1000-spl', 'display_price': 200,
+             'display_regular_price': 200, 'is_in_stock': False, 'availability_html': '', 'variation_id': 13},
+        ]
+        table = ('<div class="awdr-bulk-customizable-table"><table><tbody>'
+                 '<tr><td>5 - 9</td><td>225 SEK</td><td>10%</td></tr><tr><td>10 - 19</td><td>x</td><td>15%</td></tr>'
+                 '</tbody></table></div>')
+        return f'<form data-product_variations="{h.escape(json.dumps(variations))}"></form>{table}'
+
+    def test_variations_vat_sku_and_bulk(self):
+        offers = verkstan.page_to_offers(self.page(), self.PRODUCT, Matcher(CATALOG), 'NOW')
+        got = sorted((o['key'], o['price'], o['listPrice'], o['pack']) for o in offers)
+        self.assertEqual(got, [('PLA Basic|10100', 225, 250, 'Spole'), ('PLA Basic|10101', 250, None, 'Spole')])
+        o = offers[0]
+        self.assertEqual(o['bulk'], [[5, 10.0], [10, 15.0]])
+        self.assertTrue(o['url'].startswith(verkstan.BASE + '/produkt/pla-basic/?attribute_pa_farg='))
+        self.assertEqual(len({x['url'] for x in offers}), 2)
+
+    def test_run(self):
+        api = verkstan.API.format(1)
+        other = dict(self.PRODUCT, id=2, name='Bambu Lab Hotend', categories=[{'slug': 'reservdelar'}],
+                     permalink=verkstan.BASE + '/produkt/hotend/')
+        http = FakeHttp({api: json.dumps([self.PRODUCT, other]), self.PRODUCT['permalink']: self.page()})
+        offers = verkstan.run(http, Matcher(CATALOG), {}, lambda m: None, 'NOW')
+        self.assertEqual(len(offers), 2)
+        self.assertNotIn(other['permalink'], http.calls)
+
+
+class Experten(unittest.TestCase):
+    def test_translate_and_offers(self):
+        def p(i, title, price, cmp=None, available=True, handle=None):
+            return {'id': i, 'title': title, 'vendor': 'Bambu Lab', 'handle': handle or f'h{i}',
+                    'variants': [{'id': 100 + i, 'price': str(price), 'compare_at_price': cmp, 'available': available}]}
+        products = [
+            p(1, 'Bambu Lab - PLA Matt - Karamell - 1,75 mm - 1 kg - Refill', '340.00'),
+            p(2, '(UTGÅNG) - Bambu Lab - PLA Basic - Svart - 1,75 mm - 1 kg', '299.00', '349.00'),
+            p(3, 'Bambu Lab - PETG HF - Lake Blue - 1.75mm - 1kg', '330.00', available=False),
+            p(4, 'Bambu Lab - Hotend - X1', '500.00'),
+            p(5, 'Bambu Lab - PLA Pure - Apricot - 1.75mm - 1kg', '325.00'),
+        ]
+        offers = experten.products_to_offers(products, Matcher(CATALOG), 'NOW')
+        got = sorted((o['key'], o['price'], o['listPrice'], o['pack'], o['weight']) for o in offers)
+        self.assertEqual(got, [('PLA Basic|10101', 299, 349, 'Spole', 1000), ('PLA Matte|11803', 340, None, 'Refill', 1000)])
+        self.assertTrue(all(o['url'].startswith(experten.BASE + '/products/h') for o in offers))
+
+    def test_run_collections(self):
+        colls = json.dumps({'collections': [{'handle': 'bambu-lab-pla-basic-pla-matte'}, {'handle': 'reservdelar'}]})
+        prod = {'id': 1, 'title': 'Bambu Lab - PLA Basic - Orange - 1,75 mm - 1 kg - Refill', 'vendor': 'Bambu Lab',
+                'handle': 'orange', 'variants': [{'id': 9, 'price': '299.00', 'available': True}]}
+        pages = {experten.BASE + '/collections.json?limit=250': colls,
+                 experten.BASE + '/collections/bambu-lab-pla-basic-pla-matte/products.json?limit=250&page=1':
+                     json.dumps({'products': [prod]}),
+                 experten.BASE + '/products.json?limit=250&page=1': json.dumps({'products': [prod]})}
+        http = FakeHttp(pages)
+        offers = experten.run(http, Matcher(CATALOG), {}, lambda m: None, 'NOW')
+        self.assertEqual([(o['key'], o['pack']) for o in offers], [('PLA Basic|10300', 'Refill')])
+        self.assertFalse(any('reservdelar' in u for u in http.calls))
 
 
 class UpdateMerge(unittest.TestCase):

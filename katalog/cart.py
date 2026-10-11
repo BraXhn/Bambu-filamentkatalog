@@ -6,6 +6,8 @@ Fraktmodell (uppskattning):
 - Tradera: en frakt per säljare (samfrakt antas, högsta angivna frakten bland varorna) + köparskydd per köp.
 - Bambu Lab EU: frakt uppskattas (BAMBU_SHIPPING_SEK). Mängdrabatten (t.ex. 4+ och 6+ rullar av samma
   filamenttyp, färger får blandas) räknas in: rullarna får nivåns pris per rulle om det är lägre än dagspriset.
+- 3DVerkstan: frakt uppskattas (VERKSTAN_SHIPPING_SEK); volymrabatt per produkt (5+/10+/20+ st) räknas in.
+- 3DExperten: frakt uppskattas (EXPERTEN_SHIPPING_SEK), fri frakt till paketombud från 739 kr.
 Tradera-annonser räknas som en vara per annons; butiker har obegränsat antal.
 """
 import datetime
@@ -19,6 +21,11 @@ SHOPS = {
     '3D Prima Sverige': {'shipping': None, 'estimate': 79, 'free_from': 1000, 'home': 'https://www.3dprima.com/se/'},
     'Bambu Lab EU': {'shipping': None, 'estimate': config.BAMBU_SHIPPING_SEK,
                      'free_from': config.BAMBU_FREE_FROM_SEK or 10 ** 9, 'home': 'https://eu.store.bambulab.com/'},
+    '3DVerkstan': {'shipping': None, 'estimate': config.VERKSTAN_SHIPPING_SEK,
+                   'free_from': config.VERKSTAN_FREE_FROM_SEK or 10 ** 9,
+                   'home': 'https://3dverkstan.se/shop/filament/bambu-lab-filament/'},
+    '3DExperten': {'shipping': None, 'estimate': config.EXPERTEN_SHIPPING_SEK,
+                   'free_from': config.EXPERTEN_FREE_FROM_SEK or 10 ** 9, 'home': 'https://3dexperten.se/collections/bambu-lab'},
 }
 UNKNOWN_SHIPPING_ESTIMATE = 79
 
@@ -49,45 +56,89 @@ def _group(o):
 BULK_SHOP = 'Bambu Lab EU'
 
 
-def bulk_discount(group, lines):
-    """Bambu Lab EU:s mängdrabatt. Returnerar (rabatt_kr, detaljer, {id(erbjudande): pris_per_rulle}).
+def _kr(n):
+    return f'{round(n):,} kr'.replace(',', ' ')
 
-    Rullar (1 kg) av samma filamenttyp räknas ihop oavsett färg och förpackning; nivån med flest rullar som
-    uppnås ger sitt pris per rulle (euro omräknat med samma kurs som erbjudandet). Dagspriset används om det
-    redan är lägre.
-    """
+
+def _eur(v):
+    return f'{v:.2f} €'.replace('.', ',')
+
+
+def _rolls(n):
+    return f'{n} {"rulle" if n == 1 else "rullar"}'
+
+
+def _bambu_bulk(lines):
+    """Bambu Lab EU: fasta nivåpriser i euro per rulle, rullar av samma filamenttyp räknas ihop."""
     tiers = config.BAMBU_BULK_TIERS
-    if group != BULK_SHOP or not tiers:
-        return 0, [], {}
     by_type = defaultdict(list)
     for o in lines:
         typ = o['key'].split('|')[0]
-        if typ in config.BAMBU_BULK_TYPES and o.get('weight') == 1000 and o.get('fx'):
+        if tiers and typ in config.BAMBU_BULK_TYPES and o.get('weight') == 1000 and o.get('fx'):
             by_type[typ].append(o)
-    total, details, unit = 0, [], {}
     for typ, offers in sorted(by_type.items()):
+        n, fx = len(offers), offers[0]['fx']
+        reached = [t for t in tiers if n >= t[0]]
+        upcoming = next((t for t in tiers if n < t[0]), None)
+        info = {'label': typ, 'rolls': n, 'reached': bool(reached), 'desc': '', 'saved': 0, 'next': ''}
+        unit = {}
+        if reached:
+            min_n, eur = reached[-1]
+            info['desc'] = f'nivå {min_n}+ (' + ' · '.join(
+                f'{k.lower()} {_eur(v)} ≈ {_kr(v * fx)}/rulle' for k, v in eur.items() if v) + ')'
+            for o in offers:
+                tier_eur = eur.get(o.get('pack'))
+                if tier_eur:
+                    unit[id(o)] = min(o['price'], round(tier_eur * o['fx']))
+        if upcoming:
+            info['next'] = (f'Lägg till {_rolls(upcoming[0] - n)} {typ} (valfri färg) för {upcoming[0]}+-priset: '
+                            + ' · '.join(f'{k.lower()} {_kr(v * fx)}' for k, v in upcoming[1].items() if v)
+                            + ' per rulle.')
+        yield info, offers, unit
+
+
+def _percent_bulk(lines):
+    """Butikens egen volymrabatt i procent (t.ex. 3DVerkstan), räknad per produkt (färger blandas)."""
+    groups = defaultdict(list)
+    for o in lines:
+        if o.get('bulk') and o.get('bulkGroup'):
+            groups[o['bulkGroup']].append(o)
+    for _, offers in sorted(groups.items()):
+        tiers = sorted((int(n), float(pct)) for n, pct in offers[0]['bulk'])
         n = len(offers)
         reached = [t for t in tiers if n >= t[0]]
         upcoming = next((t for t in tiers if n < t[0]), None)
-        info = {'type': typ, 'rolls': n, 'tier': None, 'saved': 0, 'prices': {}, 'next': None}
-        fx = offers[0]['fx']
-        if upcoming:
-            info['next'] = {'min': upcoming[0], 'missing': upcoming[0] - n,
-                            'prices': {k: round(v * fx) for k, v in upcoming[1].items() if v}}
+        label = offers[0].get('title', '').split(' · ')[0] or offers[0]['key'].split('|')[0]
+        info = {'label': label, 'rolls': n, 'reached': bool(reached), 'desc': '', 'saved': 0, 'next': ''}
+        unit = {}
         if reached:
-            min_n, eur = reached[-1]
-            info['tier'] = min_n
-            info['prices'] = {k: (v, round(v * fx)) for k, v in eur.items() if v}
+            min_n, pct = reached[-1]
+            info['desc'] = f'nivå {min_n}+ st: −{pct:g} %'
             for o in offers:
-                tier_eur = eur.get(o.get('pack'))
-                if not tier_eur:
-                    continue
-                price = min(o['price'], round(tier_eur * o['fx']))
-                unit[id(o)] = price
-                info['saved'] += o['price'] - price
+                unit[id(o)] = round(o['price'] * (1 - pct / 100))
+        if upcoming:
+            info['next'] = (f'Lägg till {upcoming[0] - n} st till av samma produkt (valfri färg) '
+                            f'för −{upcoming[1]:g} %.')
+        yield info, offers, unit
+
+
+def bulk_discount(group, lines):
+    """Mängd-/volymrabatt för en butik. Returnerar (rabatt_kr, detaljer, {id(erbjudande): pris_per_st}).
+
+    Bambu Lab EU: nivåpris i euro per rulle för 4+/6+ rullar av samma filamenttyp (BAMBU_BULK_*).
+    Butiker som anger egen volymrabatt per produkt (3DVerkstan): procent på produktens alla färger ihop.
+    Dagspriset används om det redan är lägre.
+    """
+    gen = _bambu_bulk(lines) if group == BULK_SHOP else _percent_bulk(lines)
+    total, details, units = 0, [], {}
+    for info, offers, unit in gen:
+        for o in offers:
+            if id(o) in unit and unit[id(o)] < o['price']:
+                info['saved'] += o['price'] - unit[id(o)]
+                units[id(o)] = unit[id(o)]
         total += info['saved']
         details.append(info)
-    return total, details, unit
+    return total, details, units
 
 
 def shop_cost(group, lines):
@@ -188,11 +239,11 @@ def plan(items, offers, catalog, now=None):
     best = single_moves(assign, _total(assign))
     # Samlingsdrag: prova att lägga allt en butik har hos den butiken (fri frakt/samfrakt kräver flera varor
     # på en gång, vilket enkelflyttar aldrig hittar). Förbättra sedan vidare med enkelflyttar.
-    # För Bambu Lab provas också att samla en filamenttyp i taget (mängdrabatten gäller per typ).
+    # Butiker med mängdrabatt: prova också att samla en filamenttyp i taget hos dem.
     shops_all = sorted({_group(o) for c in cands for o in c})
     trials = [(g, None) for g in shops_all]
-    if BULK_SHOP in shops_all:
-        trials += [(BULK_SHOP, t) for t in sorted({k.split('|')[0] for k, _ in units})]
+    bulk_shops = sorted({_group(o) for c in cands for o in c if o.get('bulk') or _group(o) == BULK_SHOP})
+    trials += [(g, t) for g in bulk_shops for t in sorted({k.split('|')[0] for k, _ in units})]
     for _ in range(10):
         improved = False
         for g, typ in trials:
