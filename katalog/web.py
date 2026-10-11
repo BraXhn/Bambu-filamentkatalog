@@ -45,7 +45,7 @@ MAX_PER_IP = 16                                      # samtidiga anslutningar pe
 HEADER_LIMIT = 16 * 1024                             # max storlek på förfrågningsrad + rubriker
 REQUEST_DEADLINE = 10.0                              # sekunder för att skicka rubriker och kropp
 _CL = re.compile(r'[0-9]{1,6}')
-_warned_proxy = []
+_proxy_like = set()   # adresser som skickar X-Forwarded-* utan att vara betrodda
 _trusted = [ipaddress.ip_network(n) for n in config.TRUSTED_PROXIES]
 CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-src 'self' 'unsafe-inline'; "
        "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
@@ -100,21 +100,55 @@ class _TooLarge(Exception):
     pass
 
 
-class _HeaderReader:
-    """Läser förfrågningsrad och rubriker med tak för storlek och total tid (mot slowloris)."""
+class _ConnReader:
+    """Läser från anslutningen med egen buffert. Varje socket-läsning begränsas av den tid som återstår
+    av förfrågans tidsgräns, så en klient som skickar en byte i taget kan inte hålla anslutningen."""
 
-    def __init__(self, raw, deadline):
-        self._raw, self._left, self._deadline = raw, HEADER_LIMIT, deadline
+    def __init__(self, raw, sock):
+        self._raw, self._sock, self._buf, self._eof = raw, sock, bytearray(), False
+        self.reset(time.monotonic() + REQUEST_DEADLINE, HEADER_LIMIT)
+
+    def reset(self, deadline, header_limit):
+        self.deadline, self.header_left = deadline, header_limit
+
+    def _fill(self):
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError('förfrågan tog för lång tid')
+        self._sock.settimeout(max(0.05, left))
+        try:
+            chunk = self._raw.read1(65536)
+        except (socket.timeout, TimeoutError):
+            raise TimeoutError('förfrågan tog för lång tid') from None
+        if not chunk:
+            self._eof = True
+        self._buf += chunk
 
     def readline(self, size=-1):
-        if time.monotonic() > self._deadline:
-            raise TimeoutError('rubrikerna tog för lång tid')
-        limit = self._left + 1 if size is None or size < 0 else min(size, self._left + 1)
-        line = self._raw.readline(limit)
-        self._left -= len(line)
-        if self._left < 0:
-            raise _TooLarge()
-        return line
+        while True:
+            i = self._buf.find(b'\n')
+            if i >= 0 or self._eof:
+                n = i + 1 if i >= 0 else len(self._buf)
+                if size is not None and size >= 0:
+                    n = min(n, size)
+                line = bytes(self._buf[:n])
+                del self._buf[:n]
+                self.header_left -= len(line)
+                if self.header_left < 0:
+                    raise _TooLarge()
+                return line
+            if len(self._buf) > self.header_left or (size is not None and 0 <= size <= len(self._buf)):
+                raise _TooLarge()
+            self._fill()
+
+    def read(self, n=-1):
+        if n is None or n < 0:
+            raise ValueError('obegränsad läsning stöds inte')
+        while len(self._buf) < n and not self._eof:
+            self._fill()
+        data = bytes(self._buf[:n])
+        del self._buf[:n]
+        return data
 
     def __getattr__(self, name):
         return getattr(self._raw, name)
@@ -130,7 +164,7 @@ class Handler(BaseHTTPRequestHandler):
     def setup(self):
         super().setup()
         self._t0 = time.monotonic()
-        self._raw_rfile = self.rfile
+        self.rfile = _ConnReader(self.rfile, self.connection)
 
     def finish(self):
         try:
@@ -159,64 +193,60 @@ class Handler(BaseHTTPRequestHandler):
         self._deadline = self._t0 + REQUEST_DEADLINE
         for attr in ('_sess', '_body_read', '_cl'):
             self.__dict__.pop(attr, None)
-        self.rfile = _HeaderReader(self._raw_rfile, self._deadline)
+        self.rfile.reset(self._deadline, HEADER_LIMIT)
         try:
             super().handle_one_request()
         except _TooLarge:
             self.close_connection = True
-            self.rfile = self._raw_rfile
             try:
-                self.send_error(431, 'Rubrikerna är för stora')
+                self.connection.settimeout(self.timeout)
+                self.send_error(431, 'Request Header Fields Too Large')
             except OSError:
                 pass
-        except TimeoutError:
+        except (TimeoutError, socket.timeout):
             self.close_connection = True
-        finally:
-            self.rfile = self._raw_rfile
 
     def parse_request(self):
         if not super().parse_request():
             return False
-        self.rfile = self._raw_rfile          # rubrikerna är lästa; kroppen läses med egen gräns
+        self.connection.settimeout(self.timeout)   # skrivning av svaret får vanlig timeout
         values = self.headers.get_all('Content-Length') or []
-        if self.headers.get('Transfer-Encoding') or len(values) > 1 or \
+        bad_name = any(not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", k) for k in self.headers.keys())
+        if bad_name or self.headers.defects or self.headers.get_payload() or self.headers.get('Transfer-Encoding') or len(values) > 1 or \
                 (values and not _CL.fullmatch(values[0].strip())):
             self.close_connection = True
-            self.send_error(400, 'Ogiltig Content-Length/Transfer-Encoding')
+            self.send_error(400, 'Bad Request framing')
             return False
         self._cl = int(values[0]) if values else 0
         if not _is_trusted(self._peer()) and (self.headers.get('X-Forwarded-For') or self.headers.get('X-Forwarded-Proto')) \
-                and not _warned_proxy:
-            _warned_proxy.append(1)
+                and self._peer() not in _proxy_like:
+            _proxy_like.add(self._peer())   # trolig proxy: undantas från gränsen per IP så att alla inte delar 16 platser
             print(f'[varning] Förfrågan från {self._peer()} har X-Forwarded-*-rubriker men adressen är inte betrodd. '
                   f'Står katalogen bakom en omvänd proxy? Ange då TRUSTED_PROXIES={self._peer()}/32 så att riktiga '
                   f'klientadresser och https känns igen.', flush=True)
-        if config.ALLOWED_HOSTS:
-            host = (self.headers.get('Host') or '').rsplit(':', 1)[0].strip('[]').lower()
+        if config.ALLOWED_HOSTS and not self.path.startswith('/healthz') and not self._peer().startswith('127.'):
+            try:
+                host = (urllib.parse.urlsplit('//' + (self.headers.get('Host') or '')).hostname or '').lower()
+            except ValueError:
+                host = ''
             if host not in config.ALLOWED_HOSTS:
                 self.close_connection = True
-                self.send_error(421, 'Okänd värd')
+                self.send_error(421, 'Misdirected Request')
                 return False
         return True
 
     def read_body(self, limit):
-        """Läser exakt Content-Length byte (max limit) inom tidsgränsen."""
+        """Läser exakt Content-Length byte (max limit) inom förfrågans tidsgräns."""
         n = getattr(self, '_cl', 0)
         if n > limit:
             raise ValueError('för stor')
-        chunks, left = [], n
-        while left > 0:
-            if time.monotonic() > self._deadline:
-                raise TimeoutError('kroppen tog för lång tid')
-            chunk = self.rfile.read(min(left, 16384))
-            if not chunk:
-                raise ConnectionResetError('anslutningen stängdes')
-            chunks.append(chunk)
-            left -= len(chunk)
+        data = self.rfile.read(n)          # _ConnReader: varje läsning begränsas av tidsgränsen
+        self.connection.settimeout(self.timeout)
+        if len(data) < n:
+            raise ConnectionResetError('anslutningen stängdes')
         self._body_read = True
-        return b''.join(chunks)
+        return data
 
-    # ---------- hjälpare ----------
     def _peer(self):
         peer = self.client_address[0]
         return peer[7:] if peer.startswith('::ffff:') else peer
@@ -362,7 +392,8 @@ class Handler(BaseHTTPRequestHandler):
         return tok, self.cookie_header(PRE_COOKIE, tok, max_age=3600)
 
     def check_pre_csrf(self, form):
-        return self.same_origin() and security.safe_equal(form.get('csrf'), self.cookies().get(PRE_COOKIE))
+        tok = form.get('csrf') or ''
+        return bool(tok) and self.same_origin() and security.safe_equal(tok, self.cookies().get(PRE_COOKIE))
 
     # ---------- routing ----------
     def do_HEAD(self):
@@ -561,6 +592,10 @@ class Handler(BaseHTTPRequestHandler):
         pair = f'{username.lower()}|{ip}'
         # Spärr per konto+adress (8 fel/kvart) – en angripare kan inte låsa ute ägaren från andra adresser.
         # Global kontospärr bara vid storskalig gissning från många adresser (ACCOUNT_MAX_FAILS).
+        # Många misslyckanden mot kontot från olika adresser: sakta ned i stället för att låsa ute ägaren.
+        recent = security.account_failures.count(username.lower())
+        if recent >= 20:
+            time.sleep(min(5.0, recent / 20))
         if security.pair_failures.blocked(pair) or (user and user['locked_until'] > now):
             _dummy(password)
             print(f'[inloggning] spärrat försök mot "{username}" från {ip}', flush=True)
@@ -568,6 +603,7 @@ class Handler(BaseHTTPRequestHandler):
         ok = _verify(password, user['pw_hash']) if user else (_dummy(password) or False)
         if not ok:
             security.pair_failures.hit(pair)
+            security.account_failures.hit(username.lower())
             if user:
                 db.register_failure(user['id'], security.ACCOUNT_MAX_FAILS, security.ACCOUNT_LOCK_SECONDS, now)
             print(f'[inloggning] misslyckad för "{username}" från {ip}', flush=True)
@@ -891,7 +927,7 @@ class Server(ThreadingHTTPServer):
     def process_request(self, request, client_address):
         ip = client_address[0]
         ip = ip[7:] if ip.startswith('::ffff:') else ip
-        limited = not _is_trusted(ip)
+        limited = not _is_trusted(ip) and ip not in _proxy_like
         with self._count_lock:
             if limited and self._per_ip.get(ip, 0) >= MAX_PER_IP:
                 return self._refuse(request)
