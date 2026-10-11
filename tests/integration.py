@@ -67,7 +67,7 @@ check(s == 200 and b'Logga in' in b, 'inloggningssidan visas')
 for hdr in ('Content-Security-Policy', 'X-Content-Type-Options', 'X-Frame-Options', 'Referrer-Policy'):
     check(h.get(hdr), f'säkerhetsrubrik {hdr}')
 check(h.get('Cache-Control') == 'no-store', 'inloggningssidan cachas inte', h.get('Cache-Control'))
-check('nginx/' not in (h.get('Server') or ''), 'nginx-version döljs', h.get('Server'))
+check(h.get('Server', '').strip() == 'katalog', 'serverversion döljs', h.get('Server'))
 s, h, b = req(anon, '/admin')
 check(s == 303 and '/login' in h.get('Location', ''), '/admin kräver inloggning')
 s, h, b = req(anon, '/api/owned')
@@ -131,12 +131,12 @@ check(s == 303, 'utloggning')
 s, h, b = req(op, '/')
 check(s == 303, 'katalogen spärras efter utloggning')
 
-# Begränsning av inloggningsförsök i nginx (10/min, burst 5)
+# Begränsning av inloggningsförsök (10/min och IP)
 rl, _ = client()
 s, h, b = req(rl, '/login')
 tok = csrf(b.decode())
 codes = [req(rl, '/login', {'csrf': tok, 'username': 'x', 'password': 'y'})[0] for _ in range(14)]
-check(429 in codes, 'nginx begränsar inloggningsförsök', str(codes))
+check(429 in codes, 'inloggningsförsök begränsas', str(codes))
 
 passed = sum(1 for r in results if r[0])
 print(f'::notice title=Integrationstest::{passed}/{len(results)} tester lyckades')

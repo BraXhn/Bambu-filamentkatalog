@@ -1,4 +1,4 @@
-"""Flödestest av inloggning, behörighet, CSRF och kontolåsning mot Python-appen (utan nginx)."""
+"""Flödestest av inloggning, behörighet, CSRF och kontolåsning mot webbservern."""
 import http.cookiejar
 import json
 import os
@@ -106,7 +106,8 @@ class WebFlow(unittest.TestCase):
         codes=[req(x,'/login',{'csrf':t4,'username':'lisa','password':'fel-%d'%i},headers=X)[0] for i in range(8)]
         ok(codes==[401]*8,'samma svar oavsett låsning: %s'%codes)
         s,h,b=req(x,'/login',{'csrf':t4,'username':'lisa','password':'Gron-katt-hoppar-77'},headers=X); ok(s==401,'rätt lösenord nekas medan låst')
-        ok(sqlite3.connect(D+'/katalog.db').execute("select locked_until>0 from users where username='lisa'").fetchone()[0]==1,'kontot är låst i databasen')
+        y,_=client(); s,h,b=req(y,'/login'); t5=csrf(b)
+        s,h,b=req(y,'/login',{'csrf':t5,'username':'lisa','password':'Gron-katt-hoppar-77'},headers={'X-Forwarded-For':'10.9.9.11'}); ok(s==303,'ägaren kan logga in från annan adress trots angrepp')
         s,h,b=req(x,'/login',{'csrf':t4,'username':'finnsinte','password':'x'},headers=X); ok(s==401 and 'Fel användarnamn eller lösenord' in b,'okänt konto ger samma fel')
         s,h,b=req(x,'/login',{'csrf':t4,'username':'finnsinte','password':'x'},headers=X); ok(s==429,'högst 10 inloggningsförsök per minut och IP')
         s,h,b=req(x,'/login',{'csrf':t4,'username':'finnsinte','password':'x'},headers={'X-Forwarded-For':'10.9.9.10'}); ok(s==401,'andra IP-adresser påverkas inte')

@@ -40,7 +40,12 @@ def _dummy(pw):
 
 bambu_attempts = security.RateLimiter(6, 15 * 60)
 login_posts = security.RateLimiter(10, 60)          # högst 10 inloggningsförsök per minut och IP
-MAX_CONNECTIONS = 96                                 # samtidiga anslutningar (en tråd var)
+MAX_CONNECTIONS = 128                                # samtidiga anslutningar totalt (en tråd var)
+MAX_PER_IP = 16                                      # samtidiga anslutningar per klient (ej betrodd proxy)
+HEADER_LIMIT = 16 * 1024                             # max storlek på förfrågningsrad + rubriker
+REQUEST_DEADLINE = 10.0                              # sekunder för att skicka rubriker och kropp
+_CL = re.compile(r'[0-9]{1,6}')
+_warned_proxy = []
 _trusted = [ipaddress.ip_network(n) for n in config.TRUSTED_PROXIES]
 CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-src 'self' 'unsafe-inline'; "
        "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
@@ -91,16 +96,41 @@ def safe_next(url):
     return url[:500]
 
 
+class _TooLarge(Exception):
+    pass
+
+
+class _HeaderReader:
+    """Läser förfrågningsrad och rubriker med tak för storlek och total tid (mot slowloris)."""
+
+    def __init__(self, raw, deadline):
+        self._raw, self._left, self._deadline = raw, HEADER_LIMIT, deadline
+
+    def readline(self, size=-1):
+        if time.monotonic() > self._deadline:
+            raise TimeoutError('rubrikerna tog för lång tid')
+        limit = self._left + 1 if size is None or size < 0 else min(size, self._left + 1)
+        line = self._raw.readline(limit)
+        self._left -= len(line)
+        if self._left < 0:
+            raise _TooLarge()
+        return line
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'katalog'
     sys_version = ''
     protocol_version = 'HTTP/1.1'     # keep-alive för snabb sidladdning
-    timeout = 20                      # sekunder; stänger tysta/långsamma anslutningar
+    timeout = 10                      # sekunder per läsning; stänger även vilande keep-alive
     disable_nagle_algorithm = True    # annars ~40 ms extra per svar (Nagle + fördröjd ACK)
 
     def setup(self):
         super().setup()
         self._t0 = time.monotonic()
+        self._raw_rfile = self.rfile
 
     def finish(self):
         try:
@@ -119,23 +149,81 @@ class Handler(BaseHTTPRequestHandler):
         pass  # vi loggar själva i send()/static, med tid och utan frågesträng
 
     def _log(self, code, size):
-        path = urllib.parse.urlsplit(self.path).path[:120]
+        path = ''.join(c if c.isprintable() and c != '"' else '?' for c in urllib.parse.urlsplit(self.path).path[:120])
         ms = int((time.monotonic() - getattr(self, '_t0', time.monotonic())) * 1000)
         if path != '/healthz':
             print(f'{self.client_ip} "{self.command} {path}" {code} {size} {ms}ms', flush=True)
 
     def handle_one_request(self):
         self._t0 = time.monotonic()
-        for attr in ('_sess', '_body_read'):
+        self._deadline = self._t0 + REQUEST_DEADLINE
+        for attr in ('_sess', '_body_read', '_cl'):
             self.__dict__.pop(attr, None)
-        super().handle_one_request()
+        self.rfile = _HeaderReader(self._raw_rfile, self._deadline)
+        try:
+            super().handle_one_request()
+        except _TooLarge:
+            self.close_connection = True
+            self.rfile = self._raw_rfile
+            try:
+                self.send_error(431, 'Rubrikerna är för stora')
+            except OSError:
+                pass
+        except TimeoutError:
+            self.close_connection = True
+        finally:
+            self.rfile = self._raw_rfile
+
+    def parse_request(self):
+        if not super().parse_request():
+            return False
+        self.rfile = self._raw_rfile          # rubrikerna är lästa; kroppen läses med egen gräns
+        values = self.headers.get_all('Content-Length') or []
+        if self.headers.get('Transfer-Encoding') or len(values) > 1 or \
+                (values and not _CL.fullmatch(values[0].strip())):
+            self.close_connection = True
+            self.send_error(400, 'Ogiltig Content-Length/Transfer-Encoding')
+            return False
+        self._cl = int(values[0]) if values else 0
+        if not _is_trusted(self._peer()) and (self.headers.get('X-Forwarded-For') or self.headers.get('X-Forwarded-Proto')) \
+                and not _warned_proxy:
+            _warned_proxy.append(1)
+            print(f'[varning] Förfrågan från {self._peer()} har X-Forwarded-*-rubriker men adressen är inte betrodd. '
+                  f'Står katalogen bakom en omvänd proxy? Ange då TRUSTED_PROXIES={self._peer()}/32 så att riktiga '
+                  f'klientadresser och https känns igen.', flush=True)
+        if config.ALLOWED_HOSTS:
+            host = (self.headers.get('Host') or '').rsplit(':', 1)[0].strip('[]').lower()
+            if host not in config.ALLOWED_HOSTS:
+                self.close_connection = True
+                self.send_error(421, 'Okänd värd')
+                return False
+        return True
+
+    def read_body(self, limit):
+        """Läser exakt Content-Length byte (max limit) inom tidsgränsen."""
+        n = getattr(self, '_cl', 0)
+        if n > limit:
+            raise ValueError('för stor')
+        chunks, left = [], n
+        while left > 0:
+            if time.monotonic() > self._deadline:
+                raise TimeoutError('kroppen tog för lång tid')
+            chunk = self.rfile.read(min(left, 16384))
+            if not chunk:
+                raise ConnectionResetError('anslutningen stängdes')
+            chunks.append(chunk)
+            left -= len(chunk)
+        self._body_read = True
+        return b''.join(chunks)
 
     # ---------- hjälpare ----------
+    def _peer(self):
+        peer = self.client_address[0]
+        return peer[7:] if peer.startswith('::ffff:') else peer
+
     @property
     def client_ip(self):
-        peer = self.client_address[0]
-        if peer.startswith('::ffff:'):
-            peer = peer[7:]
+        peer = self._peer()
         if _is_trusted(peer):
             # Gå baklänges genom X-Forwarded-For och ta första adress som inte är en betrodd proxy.
             for ip in reversed([x.strip() for x in (self.headers.get('X-Forwarded-For') or '').split(',') if x.strip()]):
@@ -149,8 +237,16 @@ class Handler(BaseHTTPRequestHandler):
 
     @property
     def is_https(self):
-        peer = self.client_address[0].replace('::ffff:', '')
-        return _is_trusted(peer) and (self.headers.get('X-Forwarded-Proto') or '').lower() == 'https'
+        """https enligt en betrodd proxy (styr HSTS)."""
+        return _is_trusted(self._peer()) and (self.headers.get('X-Forwarded-Proto') or '').lower() == 'https'
+
+    @property
+    def browser_https(self):
+        """Webbläsaren använder https (betrodd proxy, eller Origin/Referer med https) – styr Secure-cookie."""
+        if self.is_https:
+            return True
+        ref = self.headers.get('Origin') or self.headers.get('Referer') or ''
+        return ref.lower().startswith('https://')
 
     def cookies(self):
         c = http.cookies.SimpleCookie()
@@ -161,7 +257,7 @@ class Handler(BaseHTTPRequestHandler):
         return {k: v.value for k, v in c.items()}
 
     def cookie_header(self, name, value, max_age=None, http_only=True):
-        secure = config.COOKIE_SECURE == 'true' or (config.COOKIE_SECURE == 'auto' and self.is_https)
+        secure = config.COOKIE_SECURE == 'true' or (config.COOKIE_SECURE == 'auto' and self.browser_https)
         parts = [f'{name}={value}', 'Path=/', 'SameSite=Lax']
         if http_only:
             parts.append('HttpOnly')
@@ -184,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.is_https:
             self.send_header('Strict-Transport-Security', 'max-age=31536000')
         # Oläst meddelandekropp: stäng anslutningen så resterna aldrig tolkas som en ny förfrågan.
-        if int(self.headers.get('Content-Length') or 0) > 0 and not getattr(self, '_body_read', False):
+        if getattr(self, '_cl', 0) > 0 and not getattr(self, '_body_read', False):
             self.close_connection = True
         if self.close_connection:
             self.send_header('Connection', 'close')
@@ -210,11 +306,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(code, json.dumps(obj, ensure_ascii=False), 'application/json; charset=utf-8')
 
     def form(self):
-        length = int(self.headers.get('Content-Length') or 0)
-        if length > MAX_BODY:
-            raise ValueError('för stor')
-        raw = self.rfile.read(length).decode('utf-8', errors='replace')
-        self._body_read = True
+        raw = self.read_body(MAX_BODY).decode('utf-8', errors='replace')
         return {k: v[0] for k, v in urllib.parse.parse_qs(raw, keep_blank_values=True, max_num_fields=50).items()}
 
     def same_origin(self):
@@ -297,7 +389,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith('/assets/') or path == '/favicon.ico':
                 return self.static(path, cache='public, max-age=86400')
             if STARTUP_ERROR:
-                return self.send(503, pages.error_page(503, 'Katalogen kan inte starta', STARTUP_ERROR))
+                return self.send(503, pages.error_page(503, 'Katalogen kan inte starta', 'Datamappen kan inte användas. Containerns logg beskriver felet och hur det åtgärdas.'))
             if path == '/login':
                 return self.get_login()
             if path == '/setup':
@@ -324,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
             if not APP_PATH.match(path):
                 return self.static(path, cache='no-cache')
             self.not_found()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
             self.close_connection = True
         except Exception as ex:  # noqa: BLE001
             self.server_error(ex)
@@ -361,7 +453,7 @@ class Handler(BaseHTTPRequestHandler):
             if self._reject_bad_framing():
                 return
             if STARTUP_ERROR:
-                return self.send(503, pages.error_page(503, 'Katalogen kan inte starta', STARTUP_ERROR))
+                return self.send(503, pages.error_page(503, 'Katalogen kan inte starta', 'Datamappen kan inte användas. Containerns logg beskriver felet och hur det åtgärdas.'))
             if path in ('/login', '/setup'):
                 if login_posts.blocked(self.client_ip):
                     self.close_connection = True
@@ -391,7 +483,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self.close_connection = True
             self.send(413, 'För stor förfrågan', 'text/plain; charset=utf-8')
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
             self.close_connection = True
         except Exception as ex:  # noqa: BLE001
             self.server_error(ex)
@@ -466,18 +558,23 @@ class Handler(BaseHTTPRequestHandler):
         security.ip_failures.hit(ip)
         user = db.get_user_by_name(username) if username else None
         now = time.time()
-        if user and user['locked_until'] > now:
+        pair = f'{username.lower()}|{ip}'
+        # Spärr per konto+adress (8 fel/kvart) – en angripare kan inte låsa ute ägaren från andra adresser.
+        # Global kontospärr bara vid storskalig gissning från många adresser (ACCOUNT_MAX_FAILS).
+        if security.pair_failures.blocked(pair) or (user and user['locked_until'] > now):
             _dummy(password)
-            print(f'[inloggning] försök mot spärrat konto "{username}" från {ip}', flush=True)
+            print(f'[inloggning] spärrat försök mot "{username}" från {ip}', flush=True)
             return fail(generic, 401)
         ok = _verify(password, user['pw_hash']) if user else (_dummy(password) or False)
         if not ok:
+            security.pair_failures.hit(pair)
             if user:
                 db.register_failure(user['id'], security.ACCOUNT_MAX_FAILS, security.ACCOUNT_LOCK_SECONDS, now)
             print(f'[inloggning] misslyckad för "{username}" från {ip}', flush=True)
             return fail(generic, 401)
         if not db.complete_login(user['id'], time.time()):
             return fail(generic, 401)  # kontot spärrades medan lösenordet kontrollerades
+        security.pair_failures.reset(pair)
         security.ip_failures.forgive(ip)
         print(f'[inloggning] {user["username"]} loggade in från {ip}', flush=True)
         cookie = self.start_session(user)
@@ -740,26 +837,23 @@ class Handler(BaseHTTPRequestHandler):
 
     def api_owned_get(self):
         u = self.user()
-        if not u:
+        if not u or u['must_change_pw']:
             return self.json(401, {'error': 'inte inloggad'})
         items = db.get_owned(u['id'])
         self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': _bambu_summary(u['id'])})
 
     def api_owned_put(self):
         u = self.user()
-        if not u:
+        if not u or u['must_change_pw']:
             return self.json(401, {'error': 'inte inloggad'})
         if not self.check_csrf():
             return self.json(403, {'error': 'ogiltig token'})
         if not (self.headers.get('Content-Type') or '').startswith('application/json'):
             return self.json(415, {'error': 'JSON krävs'})
-        length = int(self.headers.get('Content-Length') or 0)
-        if length > MAX_BODY:
+        if getattr(self, '_cl', 0) > MAX_BODY:
             return self.json(413, {'error': 'för stor'})
         try:
-            raw = self.rfile.read(length)
-            self._body_read = True
-            data = json.loads(raw)
+            data = json.loads(self.read_body(MAX_BODY))
             items = data['items']
             if not isinstance(items, list) or len(items) > 5000 or \
                     not all(isinstance(x, str) and 0 < len(x) <= 120 for x in items):
@@ -779,6 +873,8 @@ class Server(ThreadingHTTPServer):
     def __init__(self, addr, handler, family):
         self.address_family = family
         self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self._count_lock = threading.Lock()
+        self._per_ip = {}
         super().__init__(addr, handler, bind_and_activate=False)
         if family == socket.AF_INET6:
             try:
@@ -793,21 +889,49 @@ class Server(ThreadingHTTPServer):
             raise
 
     def process_request(self, request, client_address):
-        # Högst MAX_CONNECTIONS samtidiga anslutningar; överskott stängs i stället för att äta upp minnet.
-        if not self._slots.acquire(timeout=5):
-            self.shutdown_request(request)
-            return
+        ip = client_address[0]
+        ip = ip[7:] if ip.startswith('::ffff:') else ip
+        limited = not _is_trusted(ip)
+        with self._count_lock:
+            if limited and self._per_ip.get(ip, 0) >= MAX_PER_IP:
+                return self._refuse(request)
+            if not self._slots.acquire(blocking=False):
+                return self._refuse(request)
+            if limited:
+                self._per_ip[ip] = self._per_ip.get(ip, 0) + 1
         try:
-            super().process_request(request, client_address)
+            t = threading.Thread(target=self.process_request_thread, args=(request, client_address, ip, limited))
+            t.daemon = True
+            t.start()
         except BaseException:
-            self._slots.release()
-            raise
+            self._release(ip, limited)
+            self.shutdown_request(request)
 
-    def process_request_thread(self, request, client_address):
+    def _refuse(self, request):
         try:
-            super().process_request_thread(request, client_address)
-        finally:
+            request.sendall(b'HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\nRetry-After: 5\r\n\r\n')
+        except OSError:
+            pass
+        self.shutdown_request(request)
+
+    def _release(self, ip, limited):
+        with self._count_lock:
             self._slots.release()
+            if limited:
+                n = self._per_ip.get(ip, 1) - 1
+                if n <= 0:
+                    self._per_ip.pop(ip, None)
+                else:
+                    self._per_ip[ip] = n
+
+    def process_request_thread(self, request, client_address, ip=None, limited=False):
+        try:
+            self.finish_request(request, client_address)
+        except Exception:  # noqa: BLE001
+            self.handle_error(request, client_address)
+        finally:
+            self.shutdown_request(request)
+            self._release(ip, limited)
 
     def handle_error(self, request, client_address):
         import sys
