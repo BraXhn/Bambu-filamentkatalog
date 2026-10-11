@@ -80,6 +80,12 @@ class Handler(BaseHTTPRequestHandler):
     # meddelandekropp kan aldrig tolkas som en ny (smugglad) förfrågan.
     protocol_version = 'HTTP/1.0'
 
+    def finish(self):
+        try:
+            super().finish()
+        finally:
+            db.close_thread_conn()
+
     # ---------- hjälpare ----------
     def log_message(self, fmt, *args):  # nginx loggar redan förfrågningarna
         pass

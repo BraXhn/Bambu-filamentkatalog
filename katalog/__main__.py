@@ -26,10 +26,27 @@ def _check_data_dir():
         probe = config.DATA_DIR / '.write-test'
         probe.write_text('ok')
         probe.unlink()
+        _warn_fuse()
     except OSError as e:
         sys.exit(f'FEL: kan inte skriva till {config.DATA_DIR} ({e}).\n'
                  f'Containern kör som användare {os.getuid()}:{os.getgid()}. Ge den skrivrätt, t.ex.\n'
                  f'  chown -R {os.getuid()}:{os.getgid()} /sökväg/till/data')
+
+
+def _warn_fuse():
+    """Varnar om /data ligger på ett FUSE-filsystem (t.ex. Unraids /mnt/user)."""
+    try:
+        best = ('', '')
+        for line in open('/proc/mounts', encoding='utf-8'):
+            parts = line.split()
+            if len(parts) > 2 and str(config.DATA_DIR).startswith(parts[1]) and len(parts[1]) > len(best[0]):
+                best = (parts[1], parts[2])
+        if best[1].startswith('fuse'):
+            print(f'[varning] {config.DATA_DIR} ligger på {best[1]} (t.ex. Unraids /mnt/user). Det fungerar, men '
+                  'databasen blir stabilare och snabbare på en direkt disk, t.ex. /mnt/cache/appdata/... '
+                  'eller /mnt/disk1/appdata/...', flush=True)
+    except OSError:
+        pass
 
 
 def _seed():
