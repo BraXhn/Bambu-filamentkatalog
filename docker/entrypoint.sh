@@ -18,6 +18,15 @@ if [ "$(id -u)" = "0" ]; then
         find "$DATA" -xdev \( -type d -o \( -type f -links 1 \) \) \( ! -user "$PUID" -o ! -group "$PGID" \) \
             -exec chown -h "$PUID:$PGID" {} + || echo "[varning] kunde inte ändra ägare på allt i $DATA"
     fi
+    if ! su-exec "$PUID:$PGID" true 2>/dev/null; then
+        echo "=================================================================="
+        echo "[FEL] Containern saknar rättigheten att byta användare (SETUID/SETGID)."
+        echo "      I Unraid: Edit -> Advanced View -> Extra Parameters, ersätt med:"
+        echo "      --read-only --tmpfs /tmp --cap-drop ALL --cap-add CHOWN --cap-add SETUID --cap-add SETGID --cap-add DAC_OVERRIDE --security-opt no-new-privileges"
+        echo "      och klicka Apply."
+        echo "=================================================================="
+        exit 1
+    fi
     exec su-exec "$PUID:$PGID" "$@"
 fi
 exec "$@"
