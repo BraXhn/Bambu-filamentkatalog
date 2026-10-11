@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>bambu-filamentkatalog</Name>
+  <Repository>ghcr.io/braxhn/bambu-filamentkatalog:latest</Repository>
+  <Registry>https://github.com/BraXhn/Bambu-filamentkatalog/pkgs/container/bambu-filamentkatalog</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/BraXhn/Bambu-filamentkatalog/issues</Support>
+  <Project>https://github.com/BraXhn/Bambu-filamentkatalog</Project>
+  <Overview>Färg- och priskatalog för Bambu Lab-filament med inloggning, användarkonton, nattlig prisuppdatering (3DJake, 3D Prima, Tradera) och synk från Bambu Lab-kontots filamentbibliotek. Första start: öppna WebUI och ange installationskoden från containerns logg.</Overview>
+  <Category>Tools: HomeAutomation:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/BraXhn/Bambu-filamentkatalog/main/assets/icon.png</Icon>
+  <ExtraParams>--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges --memory 256m --pids-limit 100</ExtraParams>
+  <PostArgs/>
+  <Config Name="WebUI-port" Target="8080" Default="8765" Mode="tcp" Description="Porten du öppnar katalogen på (http://SERVER:PORT)." Type="Port" Display="always" Required="true" Mask="false">8765</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/bambu-filamentkatalog" Mode="rw" Description="Användare, inloggningar och priser. Mappen måste ägas av 101:101 (se README)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bambu-filamentkatalog</Config>
+  <Config Name="Tidszon" Target="TZ" Default="Europe/Stockholm" Mode="" Description="Tidszon för schemat." Type="Variable" Display="always" Required="false" Mask="false">Europe/Stockholm</Config>
+  <Config Name="Prisuppdatering (klockslag)" Target="PRICE_UPDATE_TIME" Default="01:00" Mode="" Description="När priserna uppdateras varje natt (HH:MM). Tomt = av." Type="Variable" Display="always" Required="false" Mask="false">01:00</Config>
+  <Config Name="Bambu-synk (timmar)" Target="BAMBU_SYNC_HOURS" Default="6" Mode="" Description="Hur ofta kopplade Bambu Lab-konton synkas. 0 = bara manuellt." Type="Variable" Display="advanced" Required="false" Mask="false">6</Config>
+  <Config Name="Betrodda proxyer" Target="TRUSTED_PROXIES" Default="" Mode="" Description="Bara om du använder omvänd proxy (t.ex. Nginx Proxy Manager): proxyns Docker-nät, t.ex. 172.17.0.0/16." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Säkra cookies" Target="COOKIE_SECURE" Default="auto" Mode="" Description="Sätt till true när sajten bara nås via https." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+</Container>

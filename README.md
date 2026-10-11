@@ -24,17 +24,18 @@ Imagen finns färdigbyggd för amd64 och arm64 som `ghcr.io/braxhn/bambu-filamen
 
 ### Unraid
 
-Använd compose-filen (Compose Manager-pluginet) eller skapa containern manuellt:
+Det finns en färdig mall i [`unraid/bambu-filamentkatalog.xml`](unraid/bambu-filamentkatalog.xml). Kör detta i Unraids terminal:
 
-| Fält | Värde |
-|---|---|
-| Repository | `ghcr.io/braxhn/bambu-filamentkatalog:latest` |
-| Port | Container `8080` → valfri port på värden |
-| Path | Container `/data` → `/mnt/user/appdata/bambu-katalog` |
-| Variabel | `TZ` = `Europe/Stockholm` |
-| Extra Parameters | `--read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges` |
+```
+mkdir -p /mnt/user/appdata/bambu-filamentkatalog
+chown -R 101:101 /mnt/user/appdata/bambu-filamentkatalog
+wget -O /boot/config/plugins/dockerMan/templates-user/my-bambu-filamentkatalog.xml \
+  https://raw.githubusercontent.com/BraXhn/Bambu-filamentkatalog/main/unraid/bambu-filamentkatalog.xml
+```
 
-Containern kör som användare `101`. En mapp på värden måste därför vara skrivbar för den: `chown -R 101:101 /mnt/user/appdata/bambu-katalog`. Containern säger till i loggen om den saknar skrivrätt.
+Gå sedan till **Docker → Add Container** och välj mallen *bambu-filamentkatalog* under **Template**. Klicka **Apply**.
+
+Containern kör som användare `101`, så datamappen måste ägas av `101:101`. Det gör `chown`-raden ovan. Containern säger till i loggen om den saknar skrivrätt.
 
 ## Exponera mot internet
 
