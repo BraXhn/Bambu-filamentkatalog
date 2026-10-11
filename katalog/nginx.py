@@ -17,7 +17,7 @@ def render():
     geo_trusted = '\n'.join(f'        {n} 1;' for n in config.TRUSTED_PROXIES)
     app = f'http://127.0.0.1:{config.APP_PORT}'
     return f"""# Genereras vid start av katalog/nginx.py – ändra inte här.
-worker_processes auto;
+worker_processes 2;  # räcker gott; "auto" ger en process per kärna och kan slå i pids-gränsen
 pid /tmp/nginx/nginx.pid;
 error_log stderr warn;
 events {{ worker_connections 1024; }}
