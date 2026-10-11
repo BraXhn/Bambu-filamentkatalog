@@ -35,6 +35,9 @@ wget -O /boot/config/plugins/dockerMan/templates-user/my-bambu-filamentkatalog.x
 
 Gå sedan till **Docker → Add Container** och välj mallen *bambu-filamentkatalog* under **Template**. Klicka **Apply**.
 
+- **Delad IP** (nätverkstyp *Bridge*): katalogen nås på `http://<unraid-ip>:<porten i mallen>`.
+- **Egen IP** (nätverkstyp *Custom: br0* eller liknande): katalogen nås alltid på `http://<containerns-ip>:8080`. Portfältet används då inte.
+
 Containern kör som användare `101`, så datamappen måste ägas av `101:101`. Det gör `chown`-raden ovan. Containern säger till i loggen om den saknar skrivrätt.
 
 ## Exponera mot internet

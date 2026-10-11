@@ -636,4 +636,6 @@ class Server(ThreadingHTTPServer):
 def serve():
     srv = Server(('127.0.0.1', config.APP_PORT), Handler)
     print(f'[app] lyssnar på 127.0.0.1:{config.APP_PORT}', flush=True)
+    print(f'[app] Öppna katalogen på http://<containerns-eller-serverns-IP>:{config.LISTEN_PORT} '
+          f'(egen IP i Unraid: port {config.LISTEN_PORT}; delad IP: den port du mappat)', flush=True)
     srv.serve_forever()
