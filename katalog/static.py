@@ -58,6 +58,17 @@ class Store:
             for p in base.iterdir():
                 if p.is_file() and not p.name.endswith('.gz') and p.suffix.lower() in TYPES:
                     files[prefix + p.name] = _load(p)
+        # Versionsmärk skripten i index.html (app.js?v=<hash>), så att webbläsare och Cloudflare
+        # aldrig använder en gammal kopia efter en uppdatering.
+        idx = files.get('/index.html')
+        if idx:
+            html = idx.body.decode('utf-8')
+            for name in ('app.js', 'prices-ui.js'):
+                f = files.get('/' + name)
+                if f:
+                    html = html.replace(f'src="{name}"', f'src="{name}?v={f.etag.strip(chr(34))[:12]}"')
+            body = html.encode('utf-8')
+            files['/index.html'] = File(body, gzip.compress(body, 9, mtime=0), idx.ctype, idx.mtime)
         files['/'] = files.get('/index.html')
         if '/assets/icon.svg' in files:
             files['/favicon.ico'] = files['/assets/icon.svg']
