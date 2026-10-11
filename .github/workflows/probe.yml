@@ -9,20 +9,17 @@ jobs:
           mkdir out && cd out
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
           get(){ curl -sSL --compressed -A "$UA" -H 'Accept-Language: sv-SE,sv;q=0.9' -o "$1" -w "$1 %{http_code} %{size_download} %{url_effective}\n" "$2" >> index.txt || echo "$1 FAIL" >> index.txt; }
-          get jake_sale.html 'https://www.3djake.se/erbjudanden'
-          get jake_sale2.html 'https://www.3djake.se/sale'
-          get jake_cat.html 'https://www.3djake.se/bambu-lab/bambu-lab-filament'
-          get jake_pla.html 'https://www.3djake.se/filament/pla-filament'
+          get jake_deal.html 'https://www.3djake.se/bambu-lab/petg-matte-avocado-green'
           python3 - <<'EOF' >> index.txt
           import re,glob
-          for f in sorted(glob.glob('jake_*.html')):
+          for f in ['jake_deal.html']:
               s=open(f,encoding='utf8',errors='replace').read()
               links=sorted(set(re.findall(r'href="(/bambu-lab/[^"#]+)"',s)))
               print(f,'bambu-länkar',len(links),links[:40])
-              for k in ['p-price__old','price--old','--old','strike','<s>','<del','UVP','Ord.pris','ordinarie','tidigare pris','Tidigare pris','lowest','-%','chip--sale','sale']:
+              for k in ['chip--sale','p-price','--old','strike','<s>','<del','Ord','ordinarie','idigare pris','lägsta','30 dagar','"price"','priceSpecification','StrikethroughPrice','ListPrice']:
                   n=s.count(k)
                   if n:
-                      i=s.find(k); print(' ',k,n,repr(re.sub(r'\s+',' ',s[max(0,i-200):i+200])))
+                      i=s.find(k); print(' ',k,n,repr(re.sub(r'\s+',' ',s[max(0,i-300):i+500])))
           EOF
           cat index.txt
       - run: |
