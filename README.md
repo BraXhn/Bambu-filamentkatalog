@@ -47,6 +47,22 @@ Låt en omvänd proxy sköta HTTPS, till exempel Nginx Proxy Manager, SWAG, Trae
 2. Sätt **`TRUSTED_PROXIES`** till **proxyns egen adress**, till exempel `172.18.0.5/32`. Ange inte ett helt nät: alla enheter i ett betrott nät kan låtsas ha en annan IP-adress. Saknas inställningen varnar loggen och föreslår rätt värde.
 3. Sätt **`COOKIE_SECURE=true`**. Sätt gärna också **`ALLOWED_HOSTS`** till ditt domännamn, så att andra värdnamn nekas.
 
+### Cloudflare Tunnel
+
+1. Lägg till ett **Public Hostname** i Cloudflare Zero Trust (*Networks → Tunnels → din tunnel*), till exempel `katalog.dindomän.se`. Ange tjänsten `http://<unraid-ip>:8765`.
+2. Öppna katalogen via `https://katalog.dindomän.se` och titta i containerns logg. Där står en varning som slutar med `Ange då TRUSTED_PROXIES=…/32`. Det är cloudflared-containerns adress.
+3. Lägg till följande i containerns inställningar och klicka **Apply**:
+
+| Variabel | Värde |
+|---|---|
+| `TRUSTED_PROXIES` | adressen från loggen, t.ex. `172.17.0.5/32` |
+| `COOKIE_SECURE` | `true` |
+| `ALLOWED_HOSTS` | `katalog.dindomän.se,<unraid-ip>` (ta med Unraid-IP:n så att den fortsätter fungera hemma) |
+
+Har cloudflared-containern ingen fast adress kan den ändras vid omstart. Ge den då en fast IP i Unraid. Ett alternativ är att lägga båda containrarna i ett eget Docker-nät och ange `http://bambu-filamentkatalog:8080` som tjänst.
+
+Vill du ha ett extra lager, kan du lägga **Cloudflare Access** framför: *Access → Applications → Self-hosted*, med e-postinloggning för dig själv. Katalogens egen inloggning gäller ändå.
+
 Skydd som är inbyggt:
 
 - **Behörighet:** allt utom inloggningssidan kräver inloggning. Det gäller även `data.json`, `offers.json` och JavaScript-filerna.
