@@ -8,32 +8,28 @@ jobs:
       - run: |
           mkdir out && cd out
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
-          get(){ curl -sS --compressed -A "$UA" -H 'Accept-Language: sv-SE,sv;q=0.9' $3 -o "$1" -D "$1.h" -w "$1 %{http_code} %{size_download} %{redirect_url}\n" "$2" >> index.txt || echo "$1 FAIL" >> index.txt; }
-          B=https://eu.store.bambulab.com
-          get p1.json "$B/products/pla-basic-filament.js"
-          get p2.json "$B/products/pla-basic-filament.js" "-b localization=SE;cart_currency=SEK"
-          get p3.json "$B/products/pla-basic-filament.js?currency=SEK&country=SE" "-b localization=SE"
-          get p4.json "$B/sv-se/products/pla-basic-filament.js" "-b localization=SE"
-          get p5.json "$B/products/pla-basic-filament.json" "-b localization=SE;cart_currency=SEK"
-          get ship.html "$B/policies/shipping-policy" "-b localization=SE"
-          get ship2.html "$B/pages/shipping-policy" "-b localization=SE"
-          get home.html "$B/" "-b localization=SE"
+          get(){ curl -sS --compressed -A "$UA" -o "$1" -w "$1 %{http_code} %{size_download} %{content_type} %{redirect_url}\n" "$2" >> index.txt || echo "$1 FAIL" >> index.txt; }
+          B=https://us.store.bambulab.com
+          get prod.html "$B/products/pla-basic-filament"
+          get prod.js "$B/products/pla-basic-filament.js"
+          get all.json "$B/collections/all/products.json?limit=5"
+          get fil.json "$B/collections/filament/products.json?limit=5"
+          get sitemap.xml "$B/sitemap.xml"
+          get robots.txt "$B/robots.txt"
+          get api1.json "$B/api/products/pla-basic-filament"
           python3 - <<'EOF' >> index.txt
-          import json,re,glob
-          for f in sorted(glob.glob('p*.json')):
-              try:
-                  d=json.load(open(f)); v=d.get('variants') or d.get('product',{}).get('variants',[])
-                  print(f,'title',d.get('title') or d.get('product',{}).get('title'),'variants',len(v))
-                  for x in v[:4]: print('   ',{k:x.get(k) for k in ('title','option1','option2','option3','price','compare_at_price','available','sku')})
-              except Exception as e: print(f,'ej json',e, open(f,errors='replace').read()[:200])
-          for f in ['ship.html','ship2.html','home.html']:
-              s=open(f,errors='replace').read(); t=re.sub(r'<[^>]+>',' ',s); t=re.sub(r'\s+',' ',t)
-              for k in ['Sweden','Sverige','SEK','free shipping','Free shipping','gratis frakt','Fri frakt','€','kr ']:
-                  i=t.find(k)
-                  if i>=0: print(f,k,'::',t[max(0,i-200):i+250])
-              print(f,'currency meta',re.findall(r'"currency":"([A-Z]{3})"',s)[:3], re.findall(r'Shopify\.currency\s*=\s*(\{[^}]+\})',s)[:1], re.findall(r'"country":"([A-Z]{2})"',s)[:2])
+          import re,json
+          s=open('prod.html',errors='replace').read()
+          print('html len',len(s),'title',re.search(r'<title>(.*?)</title>',s,re.S) and re.search(r'<title>(.*?)</title>',s,re.S)[1][:80])
+          print('next_data',s.count('__NEXT_DATA__'),'next_f',s.count('self.__next_f'),'ld+json',s.count('application/ld+json'),'Shopify',s.count('Shopify'),'shopify',s.count('shopify'))
+          for k in ['"price"','compareAtPrice','compare_at_price','availableForSale','"available"','variantId','"variants"','priceV2','amount','currencyCode','10101','storefront','graphql','myshopify']:
+              n=s.count(k)
+              if n:
+                  i=s.find(k); print(' ',k,n,repr(s[max(0,i-150):i+250]))
+          for m in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>',s,re.S)[:2]: print('LD',m[:600])
+          r=open('robots.txt',errors='replace').read(); print('robots',r[:600])
+          sm=open('sitemap.xml',errors='replace').read(); print('sitemap',sm[:500])
           EOF
-          grep -i '^location\|^set-cookie: localization\|^set-cookie: cart_currency' p*.json.h home.html.h | head -20 >> index.txt
           cat index.txt
       - run: |
           cd out && git init -q && git checkout -q -b probe-results && git add -A
