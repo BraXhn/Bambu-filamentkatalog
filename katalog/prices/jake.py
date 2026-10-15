@@ -104,10 +104,13 @@ def _parse(page, url, matcher, now):
         'p-delivery__stock--available' in page
     if not in_stock or price <= 0:
         return None
-    w = re.search(r'\((\d[\d.]*)\s*g\)', title) or re.search(r'(\d[\d.]*)\s*g\b', title)
+    num = r'(\d{1,3}(?:[.,\s\xa0]\d{3})+|\d+)'
+    w = re.search(r'\(' + num + r'\s*g\)', title) or re.search(num + r'\s*g\b', title)
     if not w:
         return None
-    weight = int(w.group(1).replace('.', ''))
+    weight = int(re.sub(r'\D', '', w.group(1)))
+    if weight <= 0:
+        return None
     pack = 'Refill' if 'refill' in title.lower() else 'Spole'
     ship = 115
     try:

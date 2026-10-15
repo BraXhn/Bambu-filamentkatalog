@@ -61,6 +61,13 @@ def _is_trusted(ip):
     except ValueError:
         return False
     return any(a in n for n in _trusted)
+
+
+def _is_private(ip):
+    try:
+        return ipaddress.ip_address(ip).is_private
+    except ValueError:
+        return False
 _names_cache = {}
 
 
@@ -100,7 +107,8 @@ def safe_next(url):
         return '/'
     if re.match(r'^/(login|logout|setup|auth)(\b|/|\?|$)', url):
         return '/'
-    return url[:500]
+    # Location skrivs som latin-1: procentkoda allt utanför ASCII så att svaret inte går sönder.
+    return urllib.parse.quote(url[:500], safe="/?=&#%:;,+@!$'()*~-._")
 
 
 class _TooLarge(Exception):
@@ -227,7 +235,8 @@ class Handler(BaseHTTPRequestHandler):
         self._cl = int(values[0]) if values else 0
         if not _is_trusted(self._peer()) and (self.headers.get('X-Forwarded-For') or self.headers.get('X-Forwarded-Proto')) \
                 and self._peer() not in _proxy_like:
-            _proxy_like.add(self._peer())   # trolig proxy: undantas från gränsen per IP så att alla inte delar 16 platser
+            if _is_private(self._peer()):
+                _proxy_like.add(self._peer())   # trolig proxy i lokalt nät: undantas från gränsen per IP så att alla inte delar 16 platser
             print(f'[varning] Förfrågan från {self._peer()} har X-Forwarded-*-rubriker men adressen är inte betrodd. '
                   f'Står katalogen bakom en omvänd proxy? Ange då TRUSTED_PROXIES={self._peer()}/32 så att riktiga '
                   f'klientadresser och https känns igen.', flush=True)
@@ -286,12 +295,14 @@ class Handler(BaseHTTPRequestHandler):
         return ref.lower().startswith('https://')
 
     def cookies(self):
-        c = http.cookies.SimpleCookie()
-        try:
-            c.load(self.headers.get('Cookie', ''))
-        except http.cookies.CookieError:
-            return {}
-        return {k: v.value for k, v in c.items()}
+        # Egen tolkning: SimpleCookie ger upp helt om någon annan app på domänen satt en cookie med t.ex. JSON.
+        out = {}
+        for part in (self.headers.get('Cookie') or '').split(';'):
+            k, sep, v = part.strip().partition('=')
+            if sep and k and k not in out:
+                v = v.strip()
+                out[k] = v[1:-1] if len(v) >= 2 and v[0] == v[-1] == '"' else v
+        return out
 
     def cookie_header(self, name, value, max_age=None, http_only=True):
         secure = config.COOKIE_SECURE == 'true' or (config.COOKIE_SECURE == 'auto' and self.browser_https)
@@ -548,6 +559,11 @@ class Handler(BaseHTTPRequestHandler):
             if urllib.parse.urlsplit(self.path).path == '/api/cart':
                 return self.api_cart_put()
             self.not_found()
+        except _TooLarge:
+            self.close_connection = True
+            self.send(413, 'För stor förfrågan', 'text/plain; charset=utf-8')
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            self.close_connection = True
         except Exception as ex:  # noqa: BLE001
             self.server_error(ex)
 
@@ -567,6 +583,7 @@ class Handler(BaseHTTPRequestHandler):
         print(f'[fel] {self.command} {urllib.parse.urlsplit(self.path).path}: {ex!r}', flush=True)
         traceback.print_exc()
         self.close_connection = True
+        self._headers_buffer = []   # kasta en halvskriven svarsrubrik
         try:
             self.send(500, pages.error_page(500, 'Något gick fel', 'Ett oväntat fel uppstod. Försök igen.'))
         except Exception:  # noqa: BLE001
@@ -935,10 +952,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = json.loads(self.read_body(4096))
             key, qty = data['key'], int(data.get('qty', 1))
-            pack = data.get('pack', 'any')
+            if 'pack' in data:
+                pack = data['pack']
+            else:   # t.ex. "+ Inköpslista" i katalogen: behåll radens valda förpackning
+                pack = next((r['pack'] for r in db.get_cart(u['id']) if r['key'] == key), 'any')
             if not isinstance(key, str) or key not in _catalog_names() or pack not in ('any', 'Spole', 'Refill'):
                 raise ValueError
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, OverflowError):
             return self.json(400, {'error': 'ogiltig data'})
         if not db.set_cart_item(u['id'], key, max(0, min(db.CART_MAX_QTY, qty)), pack):
             return self.json(409, {'error': 'Inköpslistan är full'})
