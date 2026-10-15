@@ -71,7 +71,7 @@ class WebFlow(unittest.TestCase):
             if not c:
                 fails.append(m)
 
-        a,_=client()
+        a,acj=client()
         s,h,b=req(a,'/data.json'); ok(s==303,'auth/check utan session = 401')
         s,h,b=req(a,'/login'); ok(s==303 and h['Location']=='/setup','login -> setup när inga användare')
         s,h,b=req(a,'/setup'); t=csrf(b); ok('Installationskod' in b,'setup kräver kod')
@@ -90,6 +90,13 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/api/owned',json.dumps({'items':['PLA Basic|10101']}).encode(),'PUT',{'Content-Type':'application/json','X-CSRF-Token':me['csrf']}); ok(s==200,'spara markeringar')
         s,h,b=req(a,'/api/owned',json.dumps({'items':['x']}).encode(),'PUT',{'Content-Type':'application/json'}); ok(s==403,'PUT utan csrf nekas')
         s,h,b=req(a,'/api/owned'); ok(json.loads(b)['items']==['PLA Basic|10101'],'läs markeringar')
+        J={'Content-Type':'application/json','X-CSRF-Token':me['csrf']}
+        req(a,'/api/cart',json.dumps({'key':'PLA Basic|10101','qty':1,'pack':'Refill'}).encode(),'PUT',J)
+        s,h,b=req(a,'/api/cart',json.dumps({'key':'PLA Basic|10101','qty':2}).encode(),'PUT',J); ok(s==200 and json.loads(b)['items']==[{'key':'PLA Basic|10101','qty':2,'pack':'Refill'}],'vald förpackning behålls utan pack: %s'%b)
+        s,h,b=req(a,'/api/cart',b'{"key":"PLA Basic|10101","qty":1e999}','PUT',J); ok(s==400,'qty=1e999 ger 400: %s'%s)
+        sid='; '.join(f'{c.name}={c.value}' for c in acj)
+        s,h,b=req(a,'/api/me',headers={'Cookie':'pref={"t":1}; '+sid}); ok(s==200,'främmande cookie med JSON stör inte sessionen: %s'%s)
+        s,h,b=req(a,'/login?next=/%E2%98%83'); ok(s==303 and h.get('Location')=='/%E2%98%83','next utanför latin-1 procentkodas: %s %s'%(s,h.get('Location')))
         # lisa
         l,_=client(); s,h,b=req(l,'/login?next=/'); t2=csrf(b)
         s,h,b=req(l,'/login',{'csrf':t2,'username':'lisa','password':pw,'next':'//evil.com'}); ok(s==303 and h['Location']=='/konto','lisa loggar in, skickas till byt lösenord (och öppen redirect blockeras)')

@@ -82,8 +82,12 @@ def _loop():
     db.init()  # egen anslutning i tråden
     if config.UPDATE_ON_START:
         trigger('start')
+    nxt = next_run()
     while True:
-        nxt = next_run()
+        # Behåll en passerad tid tills den körts: annars hoppas dagens körning över om förra varvet
+        # (t.ex. Bambu-synken) pågick över klockslaget.
+        if not (nxt and datetime.datetime.now(TZ) >= nxt):
+            nxt = next_run()
         timeout = 60.0
         if nxt:
             timeout = max(1.0, min(60.0, (nxt - datetime.datetime.now(TZ)).total_seconds()))
@@ -95,6 +99,7 @@ def _loop():
                 kind = _pending.pop(0)
         if not kind and nxt and datetime.datetime.now(TZ) >= nxt:
             kind = 'schedule'
+            nxt = None
         if kind:
             try:
                 run_now(kind)

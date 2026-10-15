@@ -108,6 +108,7 @@ def serve():
         print('[FEL] Webbservern startar ändå och visar felet i webbläsaren.', flush=True)
     else:
         db.init()
+        db.recover_runs()
         _seed()
         _bootstrap_admin()
     n = store.load()
@@ -167,7 +168,11 @@ def main(argv=None):
     db.init()
     if args.cmd == 'update':
         if args.sources:
-            config.PRICE_SOURCES = [s.strip() for s in args.sources.split(',')]
+            from .prices.update import SOURCES
+            config.PRICE_SOURCES = [s.strip() for s in args.sources.split(',') if s.strip()]
+            unknown = [s for s in config.PRICE_SOURCES if s not in SOURCES]
+            if unknown:
+                sys.exit(f"Okänd källa: {', '.join(unknown)}. Välj bland: {', '.join(SOURCES)}")
         from .scheduler import run_now
         status = run_now('cli')
         if status is None:

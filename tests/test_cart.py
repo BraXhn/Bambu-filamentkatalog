@@ -84,5 +84,12 @@ class Planner(unittest.TestCase):
         self.assertIn('Lägg till 5 st', v['bulk'][0]['next'])
 
 
+    def test_budget_keeps_greedy_plan(self):
+        # Tidsbudgeten slut direkt: billigaste vara per enhet, men alla enheter planeras ändå.
+        offers = [offer('PLA Basic|1', '3DJake Sverige', 230, 115, 'https://www.3djake.se/1')]
+        p = plan([('PLA Basic|1', 3, 'any')], offers, CAT, NOW, budget=0)
+        self.assertEqual((p['totals']['units'], p['missing']), (3, []))
+
+
 if __name__ == '__main__':
     unittest.main()
