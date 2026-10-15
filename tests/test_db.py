@@ -5,20 +5,28 @@ import sys
 import tempfile
 import unittest
 
-TMP = tempfile.mkdtemp()
-os.environ['KATALOG_DATA_DIR'] = TMP
+from pathlib import Path
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from katalog import db  # noqa: E402
+from katalog import config, db  # noqa: E402
 
 
 class Db(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # config kan redan vara importerad av andra tester: peka om sökvägarna här, inte via miljön.
+        cls.saved = config.DATA_DIR, config.DB_PATH
+        cls.tmp = Path(tempfile.mkdtemp())
+        config.DATA_DIR, config.DB_PATH = cls.tmp, cls.tmp / 'katalog.db'
+        db._local.conn = None
         db.init()
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(TMP, ignore_errors=True)
+        db.conn().close()
+        db._local.conn = None
+        config.DATA_DIR, config.DB_PATH = cls.saved
+        shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_init_keeps_running_run(self):
         rid = db.start_run('test')
