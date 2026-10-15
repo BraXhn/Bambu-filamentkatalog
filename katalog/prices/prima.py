@@ -29,9 +29,10 @@ def run(http, matcher, state, log, now):
         except (TypeError, ValueError):
             continue
         list_price = None
-        for spec in offer.get('priceSpecification') or []:
+        specs = offer.get('priceSpecification') or []
+        for spec in [specs] if isinstance(specs, dict) else specs:
             try:
-                if isinstance(spec, dict) and spec.get('priceType', '').endswith('ListPrice'):
+                if isinstance(spec, dict) and str(spec.get('priceType') or '').endswith('ListPrice'):
                     lp = round(float(str(spec.get('price')).replace(',', '.')))
                     list_price = lp if price < lp < price * 3 else None
             except (TypeError, ValueError):

@@ -59,6 +59,8 @@ class Parsers(unittest.TestCase):
         self.assertEqual(self.m.key(self.m.match('Bambu Lab PLA Basic Black, Refill (1.000 g)')), 'PLA Basic|10101')
         self.assertEqual(self.m.key(self.m.match('PETG HF Färg: Black (33102) Bambu Lab filament')), 'PETG HF|33102')
         self.assertIsNone(self.m.match('Bambu Lab A1 mini Combo'))
+        self.assertIsNone(self.m.match('Bambu PLA Basic Pink Citrus 1kg'))   # Gradient utan ordet: hellre ingen träff
+        self.assertEqual(tradera._pack('Bambu Lab PLA Matte Black 1kg utan spole', ''), 'Refill')
 
     def test_jake_crawl_variants_and_stock(self):
         base = 'https://www.3djake.se/bambu-lab/pla-basic-black'

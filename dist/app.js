@@ -44,7 +44,7 @@ function userMenu(){
  const who=document.createElement('span');who.className='who';who.append('Inloggad som ');const b=document.createElement('b');b.textContent=session.username;who.append(b);nav.append(who);
  const link=(href,text)=>{const a=document.createElement('a');a.href=href;a.textContent=text;nav.append(a)};
  link('inkopslista','Inköpslista');nav.lastChild.id='cartLink';link('konto','Mitt konto');if(session.isAdmin)link('admin','Administration');
- const f=document.createElement('form');f.method='post';f.action='logout';const c=document.createElement('input');c.type='hidden';c.name='csrf';c.value=session.csrf;const btn=document.createElement('button');btn.type='submit';btn.textContent='Logga ut';f.append(c,btn);nav.append(f);
+ const f=document.createElement('form');f.method='post';f.action='logout';const c=document.createElement('input');c.type='hidden';c.name='csrf';c.value=session.csrf;const btn=document.createElement('button');btn.type='submit';btn.textContent='Logga ut';f.append(c,btn);f.addEventListener('submit',()=>{try{localStorage.removeItem(storageKey)}catch{}});nav.append(f);
  document.querySelector('header').append(nav);
 }
 fetch('api/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(me=>{

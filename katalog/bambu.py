@@ -314,12 +314,12 @@ def sync_user(user_id):
         spools = get_spools(link['token'], link['region'])
         matched, unmatched = summarize(spools, SpoolMatcher(_catalog(), color_db()))
     except TokenExpired as e:
-        db.save_bambu_sync(user_id, 'expired', str(e))
+        db.save_bambu_sync(user_id, 'expired', str(e), token=link['token'])
         return False, str(e)
     except BambuError as e:
-        db.save_bambu_sync(user_id, 'error', str(e))
+        db.save_bambu_sync(user_id, 'error', str(e), token=link['token'])
         return False, str(e)
-    db.save_bambu_sync(user_id, 'ok', matched=matched, unmatched=unmatched)
+    db.save_bambu_sync(user_id, 'ok', matched=matched, unmatched=unmatched, token=link['token'])
     n = sum(m['spools'] for m in matched.values())
     total = n + len(unmatched)
     msg = f'{total} {"spole" if total == 1 else "spolar"} i biblioteket: {n} kopplade till {len(matched)} ' \

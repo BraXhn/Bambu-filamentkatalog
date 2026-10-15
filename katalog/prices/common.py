@@ -160,4 +160,13 @@ class Matcher:
         if not found:
             return None
         found.sort(key=lambda x: x[0], reverse=True)
-        return found[0][1] if len(found) == 1 or found[0][0] > found[1][0] else None
+        if len(found) > 1 and found[0][0] == found[1][0]:
+            return None
+        # "PLA Basic Pink Citrus" är troligen PLA Basic Gradient med ordet utelämnat: hellre ingen träff än fel färg.
+        sub = ' ' + norm(typ) + ' '
+        for d in self.data:
+            if d['type'] != typ and (' ' + norm(d['type']) + ' ').startswith(sub):
+                c = norm(re.sub(r'\([^)]*\)', '', d['name']))
+                if len(c) > found[0][0] and ' ' + c + ' ' in t:
+                    return None
+        return found[0][1]

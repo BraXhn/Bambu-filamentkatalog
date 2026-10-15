@@ -63,6 +63,8 @@ def _weight(title, desc):
 def _pack(title, desc):
     if re.search(r'refill', title, re.I):
         return 'Refill'
+    if re.search(r'(?:utan|ingen)\s+spole', title + ' ' + desc, re.I):
+        return 'Refill'
     if re.search(r'spole', title, re.I):
         return 'Spole'
     if re.search(r'\brefill\b', desc, re.I):
