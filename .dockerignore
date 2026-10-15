@@ -9,3 +9,4 @@
 !docker/
 **/__pycache__
 **/*.pyc
+CLAUDE.md
