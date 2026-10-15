@@ -134,7 +134,12 @@ def init():
             os.chmod(config.DB_PATH, 0o600)
         except OSError:
             pass
-        # Avbrutna körningar (t.ex. omstart mitt i) markeras som misslyckade.
+
+
+def recover_runs():
+    """Körningar som stod som pågående när servern startade avbröts av omstarten. Bara serverprocessen
+    får anropa detta – ett CLI-kommando medan servern kör skulle annars avbryta en pågående uppdatering."""
+    with _lock:
         conn().execute("UPDATE runs SET status='failed', finished=?, log=COALESCE(log,'')||'\nAvbruten (omstart).' "
                        "WHERE status='running'", (time.time(),))
 
@@ -320,22 +325,30 @@ def save_bambu_token(user_id, account, region, token, expires):
         c.execute('INSERT INTO bambu_links(user_id,account,region,token,token_expires,linked,status,error) '
                   "VALUES(?,?,?,?,?,?,'ok',NULL) ON CONFLICT(user_id) DO UPDATE SET account=excluded.account, "
                   "region=excluded.region, token=excluded.token, token_expires=excluded.token_expires, "
-                  "status='ok', error=NULL", (user_id, account, region, token, expires, now))
+                  "status='ok', error=NULL, "
+                  # Annat konto: det gamla kontots innehav får inte ligga kvar.
+                  "matched=CASE WHEN account=excluded.account THEN matched END, "
+                  "unmatched=CASE WHEN account=excluded.account THEN unmatched END, "
+                  "last_sync=CASE WHEN account=excluded.account THEN last_sync END, "
+                  "linked=CASE WHEN account=excluded.account THEN linked ELSE excluded.linked END", (user_id, account, region, token, expires, now))
         c.execute('DELETE FROM bambu_pending WHERE user_id=?', (user_id,))
 
 
-def save_bambu_sync(user_id, status, error=None, matched=None, unmatched=None):
+def save_bambu_sync(user_id, status, error=None, matched=None, unmatched=None, token=None):
     now = time.time()
+    # Med token: uppdatera bara om det är det token som användes – kopplas kontot om under synken
+    # ska varken det nya tokenet eller det nya kontots innehav skrivas över.
+    where, args = (' WHERE user_id=? AND token IS ?', (user_id, token)) if token is not None else (' WHERE user_id=?', (user_id,))
     with tx() as c:
         if status == 'ok':
             c.execute("UPDATE bambu_links SET status='ok', error=NULL, last_sync=?, last_attempt=?, matched=?, "
-                      'unmatched=? WHERE user_id=?', (now, now, json.dumps(matched, ensure_ascii=False),
-                                                      json.dumps(unmatched, ensure_ascii=False), user_id))
+                      'unmatched=?' + where, (now, now, json.dumps(matched, ensure_ascii=False),
+                                              json.dumps(unmatched, ensure_ascii=False)) + args)
         else:
             # Behåll senast synkade innehav; bara status/fel ändras.
             c.execute('UPDATE bambu_links SET status=?, error=?, last_attempt=?' +
-                      (', token=NULL' if status == 'expired' else '') + ' WHERE user_id=?',
-                      (status, (error or '')[:300], now, user_id))
+                      (', token=NULL' if status == 'expired' else '') + where,
+                      (status, (error or '')[:300], now) + args)
 
 
 def delete_bambu(user_id):

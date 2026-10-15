@@ -12,6 +12,7 @@ Tradera-annonser räknas som en vara per annons; butiker har obegränsat antal.
 """
 import datetime
 import json
+import time
 from collections import defaultdict
 
 from . import config
@@ -191,9 +192,12 @@ def _total(assign):
     return t
 
 
-def plan(items, offers, catalog, now=None):
+def plan(items, offers, catalog, now=None, budget=2.0):
     """items: [(key, qty, pack)] -> dict med butiker, rader, saknade och summor."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
+    # Förbättringsstegen växer snabbt med antalet enheter och håller GIL: efter tidsbudgeten används
+    # bästa lösningen hittills så att en stor lista inte låser hela servern.
+    deadline = time.monotonic() + budget
     by_key = {d['type'] + '|' + (d['code'] or d['name']): d for d in catalog}
     units, cands, missing = [], [], []
     for key, qty, pack in items:
@@ -222,6 +226,8 @@ def plan(items, offers, catalog, now=None):
         for _ in range(25):
             improved = False
             for i, c in enumerate(cands):
+                if time.monotonic() > deadline:
+                    return best
                 current = assign[i]
                 for o in c:
                     if o is current or not capacity_ok(assign, i, o):
@@ -247,6 +253,8 @@ def plan(items, offers, catalog, now=None):
     for _ in range(10):
         improved = False
         for g, typ in trials:
+            if time.monotonic() > deadline:
+                break
             trial = list(assign)
             for i, c in enumerate(cands):
                 if typ and units[i][0].split('|')[0] != typ:
