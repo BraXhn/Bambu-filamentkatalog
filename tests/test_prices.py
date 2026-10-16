@@ -230,6 +230,13 @@ class Experten(unittest.TestCase):
         self.assertEqual(got, sorted(want))     # 'Okänd ton rosa' får inte bli Pink
         self.assertTrue(all(o['url'].startswith(experten.BASE + '/products/h') for o in offers))
 
+    def test_pack_per_variant(self):
+        prod = {'id': 1, 'title': 'Bambu Lab - PLA Basic - Svart - 1,75 mm - 1 kg', 'vendor': 'Bambu Lab', 'handle': 'svart',
+                'variants': [{'id': 1, 'title': 'Med spole', 'option1': 'Med spole', 'price': '329.00', 'available': True},
+                             {'id': 2, 'title': 'Refill', 'option1': 'Refill', 'price': '279.00', 'available': True}]}
+        offers = experten.products_to_offers([prod], Matcher(CATALOG), 'NOW')
+        self.assertEqual(sorted((o['pack'], o['price']) for o in offers), [('Refill', 279), ('Spole', 329)])
+
     def test_run_collections(self):
         colls = json.dumps({'collections': [{'handle': 'bambu-lab-pla-basic-pla-matte'}, {'handle': 'reservdelar'}]})
         prod = {'id': 1, 'title': 'Bambu Lab - PLA Basic - Orange - 1,75 mm - 1 kg - Refill', 'vendor': 'Bambu Lab',
@@ -276,6 +283,34 @@ class UpdateMerge(unittest.TestCase):
         kept = {(o['key'], o['url'], o['pack']) for o in self.prev if o['shop'] != prima.SHOP}
         self.assertEqual(len(out), len(kept))
         self.assertTrue((config.WWW_DIR / 'offers.json.gz').exists())
+
+
+class History(unittest.TestCase):
+    def test_series_per_shop_and_pack(self):
+        from katalog import history
+        tmp = Path(tempfile.mkdtemp())
+        saved = config.STATE_DIR
+        try:
+            config.STATE_DIR = tmp
+            (tmp / 'price_history.json').write_text(json.dumps({
+                'PLA Basic|10101|https://www.3djake.se/a|Spole': {'2026-10-01': 299, '2026-10-02': 279},
+                'PLA Basic|10101|https://www.tradera.com/item/1|Spole': {'2026-10-01': 250},
+                'PLA Basic|10101|https://www.tradera.com/item/2|Spole': {'2026-10-01': 240, '2026-10-02': 260},
+                'PLA Basic|10102|https://www.3djake.se/b|Refill': {'2026-10-01': 199}}), encoding='utf-8')
+            got = history.series('PLA Basic|10101', [{'url': 'https://www.3djake.se/a', 'shop': '3DJake Sverige'}])
+            self.assertEqual(got, [{'shop': '3DJake Sverige', 'pack': 'Spole', 'points': [['2026-10-01', 299], ['2026-10-02', 279]]},
+                                   {'shop': 'Tradera', 'pack': 'Spole', 'points': [['2026-10-01', 240], ['2026-10-02', 260]]}])
+        finally:
+            config.STATE_DIR = saved
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_source_alerts(self):
+        from katalog import pages
+        def run(status):
+            return {'status': 'partial', 'summary': json.dumps({'3djake': {'label': '3DJake', 'status': status, 'error': 'HTTP 500'},
+                                                                 'tradera': {'label': 'Tradera', 'status': 'ok'}})}
+        self.assertEqual(pages.source_alerts([run('failed'), run('failed'), run('ok')]), [('3DJake', 2, 'HTTP 500')])
+        self.assertEqual(pages.source_alerts([run('failed'), run('ok'), run('failed')]), [])
 
 
 if __name__ == '__main__':

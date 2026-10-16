@@ -72,6 +72,20 @@ def _weight(title):
     return round(v * 1000) if m.group(2).lower() == 'kg' else round(v)
 
 
+def _pack(text):
+    if re.search(r'\brefill\b|utan\s+spole|ingen\s+spole', text, re.I):
+        return 'Refill'
+    if re.search(r'\bspole\b|\bspool\b', text, re.I):
+        return 'Spole'
+    return None
+
+
+def _variant_text(v):
+    """Variantens egna namn ('Refill', 'Med spole / 1 kg'); Shopifys 'Default Title' räknas inte."""
+    parts = [str(v.get(k) or '') for k in ('title', 'option1', 'option2', 'option3')]
+    return ' '.join(x for x in parts if x and x.lower() != 'default title')
+
+
 def products_to_offers(products, matcher, now):
     offers = []
     for p in products:
@@ -84,13 +98,19 @@ def products_to_offers(products, matcher, now):
         d = matcher.match(name) if name else None
         if not d or not _same_color(d, name, matcher):
             continue
-        weight = _weight(title.replace('1,75 mm', '').replace('1.75mm', '').replace('1.75 mm', ''))
-        pack = 'Refill' if re.search(r'\brefill\b', title, re.I) else 'Spole'
+        base_weight = _weight(title.replace('1,75 mm', '').replace('1.75mm', '').replace('1.75 mm', ''))
+        base_pack = _pack(title) or 'Spole'
         handle = str(p.get('handle', ''))
-        if not weight or not re.fullmatch(r'[a-z0-9-]+', handle):
+        if not re.fullmatch(r'[a-z0-9-]+', handle):
             continue
         for v in p.get('variants') or []:
             if not isinstance(v, dict) or not v.get('available'):
+                continue
+            # Spole och refill kan vara varianter av samma produkt: variantens namn går före titeln.
+            vt = _variant_text(v)
+            pack = _pack(vt) or base_pack
+            weight = _weight(vt) or base_weight
+            if not weight:
                 continue
             try:
                 price = round(float(v['price']))

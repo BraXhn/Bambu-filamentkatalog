@@ -4,11 +4,15 @@ Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och an
 
 - **Katalog:** 229 färgvarianter inom 38 filamenttyper, med sökning, filter, kort- och tabellvy och CSV-export.
 - **Prisjämförelse:** pris inklusive frakt och köparskydd, uppdelat på vikt och refill/spole. Auktioner visas separat.
-- **Inköpslista:** lägg filament i en lista. Sidan *Inköpslista* visar var varje filament bör köpas, med direktlänk, och en uppskattad totalsumma inklusive frakt. Köpen fördelas så att totalen blir så låg som möjligt, med hänsyn till fri frakt och samfrakt.
+- **Inköpslista:** lägg filament i en lista. Sidan *Inköpslista* visar var varje filament bör köpas, med direktlänk, och en uppskattad totalsumma inklusive frakt. Köpen fördelas så att totalen blir så låg som möjligt, med hänsyn till fri frakt och samfrakt. Stora listor räknas färdigt i bakgrunden och efter varje prisuppdatering, så sidan visar oftast den bästa fördelningen direkt.
+- **Budget:** ange ett maxbelopp på inköpslistan. Sidan visar då vad du kan köpa nu och vad som kan vänta – i första hand det som inte är på rea just nu och är dyrast.
+- **Dela och skriv ut:** skapa en länk som visar inköpslistan utan inloggning (skrivskyddad, t.ex. för någon som beställer åt dig), eller skriv ut den med butikslänkarna utskrivna. En ny länk gör den gamla ogiltig, och delningen kan stängas av.
+- **Prishistorik:** prisdialogen visar ett diagram över lägsta varupris per butik och förpackning de senaste 90 dagarna, med tabellvy.
+- **Önskelista:** markera färger du vill testa senare och filtrera fram dem med knappen *Önskelista*. Prisrad och rabatter syns som vanligt.
 - **Billigast och erbjudanden:** sortera på lägsta aktuella pris eller största rabatt, och filtrera fram aktuella erbjudanden med rabatt i procent mot ordinarie pris.
 - **Användare:** varje användare har sina egna ”Jag har detta filament”-markeringar, sparade på kontot och synliga på alla enheter.
-- **Synk från Bambu Lab:** koppla ditt Bambu Lab-konto så markeras spolarna i ditt filamentbibliotek automatiskt som ”Jag har”, med gram kvar per färg.
-- **Administration i webbläsaren:** lägg till och ta bort användare, återställ lösenord, lås upp konton, se prisuppdateringarnas status och starta en uppdatering direkt.
+- **Synk från Bambu Lab:** koppla ditt Bambu Lab-konto så markeras spolarna i ditt filamentbibliotek automatiskt som ”Jag har”, med gram kvar per färg. Färger med lite kvar (under 200 g, valbart) märks *Snart slut* och kan läggas i inköpslistan med ett klick.
+- **Administration i webbläsaren:** lägg till och ta bort användare, återställ lösenord, lås upp konton, se prisuppdateringarnas status och starta en uppdatering direkt. En varning visas när en butik har misslyckats två körningar i rad (sidformatet kan ha ändrats). Säkerhetskopia av databasen och prishistoriken laddas ner med en knapp.
 
 ## Kom igång
 
@@ -172,21 +176,23 @@ All data finns i `/data`:
 
 | Sökväg | Innehåll |
 |---|---|
-| `katalog.db` | Användare, sessioner, markeringar, körhistorik och Bambu-inloggningar (filen är bara läsbar för containern) |
+| `katalog.db` | Användare, sessioner, markeringar, önskelistor, inköpslistor, delningslänkar (bara som hash), körhistorik och Bambu-inloggningar (filen är bara läsbar för containern) |
 | `www/offers.json` | Senaste priserna |
-| `state/` | Kända produktlänkar |
+| `state/` | Kända produktlänkar och prishistorik (`price_history.json`, 90 dagar) |
 
-Kopiera mappen när containern är stoppad, eller använd `sqlite3 katalog.db ".backup kopia.db"`.
+Enklast: **Administration → Säkerhetskopia → Ladda ner säkerhetskopia**. Du får en zip-fil med en konsekvent kopia av databasen (tas medan servern kör) och `state/` och `www/`. Filen innehåller lösenordshashar och Bambu-inloggningar, så förvara den säkert. Återställ genom att stoppa containern, packa upp filen i datamappen och starta igen.
+
+Annars: kopiera mappen när containern är stoppad, eller använd `sqlite3 katalog.db ".backup kopia.db"`.
 
 ## Projektstruktur
 
 | Sökväg | Innehåll |
 |---|---|
 | `dist/` | Webbappen (HTML, CSS, JS) och inbyggd data |
-| `katalog/` | Server (`web.py`, statiska filer i `static.py`), inloggning (`security.py`, `db.py`), sidor (`pages.py`), Bambu Lab-synk (`bambu.py`), schemaläggning (`scheduler.py`) |
+| `katalog/` | Server (`web.py`, statiska filer i `static.py`), inloggning (`security.py`, `db.py`), sidor (`pages.py`), Bambu Lab-synk (`bambu.py`), schemaläggning (`scheduler.py`), inköpslistans planerare och budget (`cart.py`), prishistorik (`history.py`) |
 | `docker/entrypoint.sh` | Ger `/data` rätt ägare och startar appen som PUID:PGID |
 | `katalog/prices/` | Prishämtare per källa och sammanslagning (`update.py`) |
-| `assets/` | Stil och ikon för inloggnings- och adminsidorna |
+| `assets/` | Stil, ikon och utskriftsskript för de serverrenderade sidorna |
 | `tests/` | Enhetstester och integrationstest mot containern |
 | `build_catalog.py`, `build_prices.py`, `prices.py`, `sources/` | Ursprungliga byggskript och sparade underlag för färgkatalogen. Bygg om med `--build-arg REBUILD_DATA=true`. |
 | `start.py`, `Starta-Windows.bat` | Enkel lokal visning utan inloggning och prisuppdatering |
