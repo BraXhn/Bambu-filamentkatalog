@@ -22,6 +22,7 @@ $('#ownedFilter').onclick=()=>{onlyOwned=!onlyOwned;render()};
 $('#results').addEventListener('change',e=>{
  const input=e.target,key=input.dataset.owned;if(key===undefined)return;
  if(input.checked)owned.add(key);else owned.delete(key);
+ if(!ownedLoaded)edits.set(key,input.checked);
  saveOwned();
  render();const next=Array.from(document.querySelectorAll('[data-owned]')).find(el=>el.dataset.owned===key);if(next)next.focus({preventScroll:true});
 });
@@ -31,11 +32,13 @@ window.addEventListener('storage',e=>{if(e.key!==storageKey&&e.key!==null)return
 document.addEventListener('error',e=>{const i=e.target;if(i instanceof HTMLImageElement&&i.hasAttribute('data-fallback')){i.style.display='none';if(i.nextElementSibling)i.nextElementSibling.hidden=false}},true);
 
 // --- Inloggad användare: meny och markeringar sparade på kontot ---
-let session=null,saveTimer=null,saving=Promise.resolve();
+let session=null,saveTimer=null,saving=Promise.resolve(),ownedLoaded=false;const edits=new Map();
 function localSave(){try{localStorage.setItem(storageKey,JSON.stringify([...owned]))}catch{}}
 function saveOwned(){
  localSave();
  if(!session){$('#saveStatus').textContent='Sparat i den här webbläsaren.';return}
+ // Kontots markeringar har inte laddats än: spara inte över dem, ändringen läggs på när de kommer.
+ if(!ownedLoaded){$('#saveStatus').textContent='Sparar…';return}
  $('#saveStatus').textContent='Sparar…';clearTimeout(saveTimer);
  saveTimer=setTimeout(()=>{saving=saving.then(()=>fetch('api/owned',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({items:[...owned]})}).then(r=>{if(r.status===401){location.href='login?next='+encodeURIComponent(location.pathname);return}if(!r.ok)throw Error();$('#saveStatus').textContent='Sparat på ditt konto ('+session.username+'). Syns på alla dina enheter.'}).catch(()=>{$('#saveStatus').textContent='Kunde inte spara på kontot just nu. Markeringen finns kvar i den här webbläsaren; försök igen senare.'}))},400);
 }
@@ -55,9 +58,11 @@ fetch('api/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(me=
   const server=new Set(d.items.filter(x=>typeof x==='string'));
   // Första gången: flytta markeringar från webbläsaren till kontot.
   const merged=d.saved?server:new Set([...server,...owned]);
-  owned=merged;$('#saveStatus').textContent='Dina markeringar sparas på ditt konto och syns på alla dina enheter.';
+  // Rutor som kryssades medan listan laddades läggs ovanpå kontots lista.
+  for(const [k,on] of edits){if(on)merged.add(k);else merged.delete(k)}
+  owned=merged;ownedLoaded=true;$('#saveStatus').textContent='Dina markeringar sparas på ditt konto och syns på alla dina enheter.';
   if(d.bambu){bambuInfo=d.bambu;bambuOwned=d.bambu.items||{};const n=Object.keys(bambuOwned).length;const when=d.bambu.lastSync?new Date(d.bambu.lastSync*1000).toLocaleString('sv-SE',{dateStyle:'short',timeStyle:'short'}):'aldrig';const warn=d.bambu.status==='expired'?' Inloggningen hos Bambu har gått ut – koppla igen under Mitt konto.':d.bambu.status==='error'?' Senaste synken misslyckades.':'';$('#saveStatus').textContent=`${n} färger kommer från ditt Bambu Lab-bibliotek (synkat ${when}).${warn} Övriga markeringar sparas på ditt konto.`}
-  if(!d.saved&&merged.size)saveOwned();else localSave();
+  if((!d.saved&&merged.size)||edits.size)saveOwned();else localSave();edits.clear();
   if(data.length)render();
  });
 }).catch(()=>{});
