@@ -21,7 +21,7 @@ SOURCES = {
     '3dexperten': ('3DExperten', experten, lambda o: o['shop'] == experten.SHOP),
 }
 SEED_STATE = Path(__file__).with_name('seed_state.json')
-HISTORY_DAYS = 60          # hur länge prishistoriken sparas
+HISTORY_DAYS = 90          # hur länge prishistoriken sparas (visas som diagram)
 REGULAR_WINDOW = 30        # ordinarie pris = typiskt pris de senaste 30 dagarna
 MIN_HISTORY_DAYS = 7       # minst så många dagars historik innan rabatt räknas fram ur historiken
 MIN_DISCOUNT = 5           # procent; mindre prisskillnader räknas inte som erbjudande
