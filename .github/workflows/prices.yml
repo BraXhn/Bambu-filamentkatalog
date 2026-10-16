@@ -16,12 +16,12 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.13' }
       - name: Hämta priser
         env:
           KATALOG_DATA_DIR: ${{ runner.temp }}/data
@@ -44,7 +44,7 @@ jobs:
                   print(f"::{level} title={v['label']}::{v['status']} – {v['offers']} erbjudanden (tidigare {v['previous']}) {v.get('error', '')}")
           raise SystemExit(0 if status == 'ok' else 1)
           EOF
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: priser
