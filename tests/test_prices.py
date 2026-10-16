@@ -230,6 +230,13 @@ class Experten(unittest.TestCase):
         self.assertEqual(got, sorted(want))     # 'Okänd ton rosa' får inte bli Pink
         self.assertTrue(all(o['url'].startswith(experten.BASE + '/products/h') for o in offers))
 
+    def test_pack_per_variant(self):
+        prod = {'id': 1, 'title': 'Bambu Lab - PLA Basic - Svart - 1,75 mm - 1 kg', 'vendor': 'Bambu Lab', 'handle': 'svart',
+                'variants': [{'id': 1, 'title': 'Med spole', 'option1': 'Med spole', 'price': '329.00', 'available': True},
+                             {'id': 2, 'title': 'Refill', 'option1': 'Refill', 'price': '279.00', 'available': True}]}
+        offers = experten.products_to_offers([prod], Matcher(CATALOG), 'NOW')
+        self.assertEqual(sorted((o['pack'], o['price']) for o in offers), [('Refill', 279), ('Spole', 329)])
+
     def test_run_collections(self):
         colls = json.dumps({'collections': [{'handle': 'bambu-lab-pla-basic-pla-matte'}, {'handle': 'reservdelar'}]})
         prod = {'id': 1, 'title': 'Bambu Lab - PLA Basic - Orange - 1,75 mm - 1 kg - Refill', 'vendor': 'Bambu Lab',
