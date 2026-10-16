@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from katalog.cart import plan  # noqa: E402
+from katalog.cart import plan, within_budget  # noqa: E402
 
 NOW = datetime.datetime(2026, 10, 11, tzinfo=datetime.timezone.utc)
 CAT = [{'type': 'PLA Basic', 'code': c, 'name': n} for c, n in (('1', 'A'), ('2', 'B'), ('3', 'C'), ('4', 'D'), ('5', 'E'))]
@@ -89,6 +89,18 @@ class Planner(unittest.TestCase):
         offers = [offer('PLA Basic|1', '3DJake Sverige', 230, 115, 'https://www.3djake.se/1')]
         p = plan([('PLA Basic|1', 3, 'any')], offers, CAT, NOW, budget=0)
         self.assertEqual((p['totals']['units'], p['missing']), (3, []))
+
+
+    def test_budget_postpones_expensive_non_deals(self):
+        offers = [offer('PLA Basic|1', '3DJake Sverige', 400, 115, 'https://www.3djake.se/1'),
+                  dict(offer('PLA Basic|2', '3DJake Sverige', 200, 115, 'https://www.3djake.se/2'), discount=20),
+                  offer('PLA Basic|3', '3DJake Sverige', 250, 115, 'https://www.3djake.se/3')]
+        items = [('PLA Basic|1', 1, 'any'), ('PLA Basic|2', 1, 'any'), ('PLA Basic|3', 1, 'any')]
+        buy, wait = within_budget(items, offers, CAT, 600, now=NOW)
+        self.assertLessEqual(buy['totals']['total'], 600)
+        self.assertEqual(wait, [('PLA Basic|1', 1, 'any')])          # dyrast och inte på rea
+        buy, wait = within_budget(items, offers, CAT, 10_000, now=NOW)
+        self.assertEqual(wait, [])
 
 
 if __name__ == '__main__':

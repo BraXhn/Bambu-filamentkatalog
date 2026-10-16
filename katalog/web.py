@@ -4,6 +4,7 @@ Statiska filer serveras från minnet (förkomprimerade, med ETag). Varje förfr�
 """
 import http.cookies
 import ipaddress
+import os
 import json
 import re
 import socket
@@ -12,7 +13,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import bambu, cart, config, db, pages, scheduler, security
+from . import bambu, cart, config, db, history, pages, scheduler, security
 from .static import store
 
 COOKIE = 'katalog_sid'
@@ -51,7 +52,7 @@ CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-
        "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
        "frame-ancestors 'none'")
 PUBLIC = {'/healthz', '/robots.txt', '/favicon.ico'}
-APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista)(/|$)')
+APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista|delad)(/|$)')
 STARTUP_ERROR = None   # sätts om datamappen inte går att använda; visas då på alla sidor
 
 
@@ -449,6 +450,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_owned_get()
             if path == '/api/cart':
                 return self.api_cart_get()
+            if path == '/api/wish':
+                return self.api_wish_get()
+            if path == '/api/history':
+                return self.api_history()
+            m = re.fullmatch(r'/delad/([A-Za-z0-9_-]{20,80})', path)
+            if m:
+                return self.get_shared(m.group(1))
             u = self.user()
             if not u:
                 if APP_PATH.match(path) or store.get(path):
@@ -556,8 +564,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if urllib.parse.urlsplit(self.path).path == '/api/owned':
                 return self.api_owned_put()
-            if urllib.parse.urlsplit(self.path).path == '/api/cart':
+            p = urllib.parse.urlsplit(self.path).path
+            if p == '/api/cart':
                 return self.api_cart_put()
+            if p == '/api/cart/add':
+                return self.api_cart_add()
+            if p == '/api/wish':
+                return self.api_wish_put()
+            if p == '/api/prefs':
+                return self.api_prefs_put()
             self.not_found()
         except _TooLarge:
             self.close_connection = True
@@ -772,6 +787,25 @@ class Handler(BaseHTTPRequestHandler):
         kind, msg = msgs.get(q.get('m', [''])[0], ('', ''))
         self._admin_page(kind, msg)
 
+    def admin_backup(self):
+        import io
+        import tempfile
+        import zipfile
+        buf = io.BytesIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            dbfile = os.path.join(tmp, 'katalog.db')
+            db.backup_to(dbfile)
+            with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+                z.write(dbfile, 'katalog.db')
+                for sub in (config.STATE_DIR, config.WWW_DIR):
+                    if sub.is_dir():
+                        for fp in sorted(sub.glob('*.json')):
+                            z.write(fp, f'{sub.name}/{fp.name}')
+        name = time.strftime('bambu-filamentkatalog-%Y%m%d-%H%M.zip')
+        print(f'[admin] {self.user()["username"]} laddade ner en säkerhetskopia', flush=True)
+        self.send(200, buf.getvalue(), 'application/zip',
+                  headers=[('Content-Disposition', f'attachment; filename="{name}"')])
+
     def get_confirm_delete(self, uid):
         u = self.user()
         if not u['is_admin']:
@@ -791,6 +825,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.redirect('/admin?m=' + ('start' if started else 'busy') + '#priser')
         if path == '/admin/anvandare':
             return self.admin_create(f)
+        if path == '/admin/sakerhetskopia':
+            return self.admin_backup()
         m = re.fullmatch(r'/admin/anvandare/(\d+)/(losenord|roll|las-upp|logga-ut|ta-bort)', path)
         if not m:
             return self.not_found()
@@ -904,13 +940,31 @@ class Handler(BaseHTTPRequestHandler):
         return self.get_account(bkind='ok' if ok else 'err', bmsg=('Kontot är kopplat. ' if ok else 'Kontot är kopplat, men ') + msg)
 
     # ---------- inköpslista ----------
-    def get_cart(self, kind='', msg='', code=200):
+    def get_cart(self, kind='', msg='', code=200, share_url=None):
         u = self.user()
         items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(u['id'])]
         offers, checked = cart.load_offers()
         catalog = _catalog()
-        plan = cart.plan(items, offers, catalog)
-        self.send(code, pages.shopping_list(u, self.session()['csrf'], plan, items, _catalog_names(), checked, kind, msg))
+        plan = cart.cached_plan(u['id'], items, offers, catalog, checked) if items else cart.plan([], offers, catalog)
+        budget = _int(db.get_pref(u['id'], 'budget'), None)
+        buy, wait = (cart.within_budget(items, offers, catalog, budget, base=plan) if budget and items else (plan, []))
+        self.send(code, pages.shopping_list(u, self.session()['csrf'], buy, items, _catalog_names(), checked, kind, msg,
+                                            budget=budget, waiting=wait, full=plan, shared=bool(db.get_share(u['id'])),
+                                            share_url=share_url))
+
+    def get_shared(self, token):
+        uid = db.share_user(security.token_hash(token))
+        owner = db.get_user(uid) if uid else None
+        if not owner:
+            return self.send(404, pages.error_page(404, 'Länken gäller inte längre', 'Be om en ny länk till inköpslistan.'))
+        items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(uid)]
+        offers, checked = cart.load_offers()
+        plan = cart.cached_plan(uid, items, offers, _catalog(), checked) if items else None
+        self.send(200, pages.shared_list(owner['username'], plan, checked))
+
+    def _share_url(self, token):
+        host = self.headers.get('Host') or 'localhost'
+        return f"{'https' if self.browser_https else 'http'}://{host}/delad/{token}"
 
     def cart_post(self, path):
         f = self.form()
@@ -920,6 +974,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/inkopslista/tom':
             db.clear_cart(uid)
             return self.get_cart('ok', 'Inköpslistan är tömd.')
+        if path == '/inkopslista/budget':
+            raw = re.sub(r'[\s ]', '', f.get('budget', '')).replace('kr', '')
+            if f.get('do') == 'ta-bort' or not raw:
+                db.set_pref(uid, 'budget', None)
+                return self.redirect('/inkopslista')
+            if not raw.isdigit() or not 0 < int(raw) <= 1_000_000:
+                return self.get_cart('err', 'Ange budgeten som ett belopp i kronor, t.ex. 1500.', 400)
+            db.set_pref(uid, 'budget', int(raw))
+            return self.redirect('/inkopslista')
+        if path == '/inkopslista/dela':
+            token = security.new_token()
+            db.set_share(uid, security.token_hash(token))
+            return self.get_cart('ok', 'Delningslänken är skapad. Kopiera den nu – den visas bara en gång. '
+                                       'En tidigare länk slutar gälla.', share_url=self._share_url(token))
+        if path == '/inkopslista/sluta-dela':
+            db.delete_share(uid)
+            return self.get_cart('ok', 'Inköpslistan delas inte längre. Den gamla länken fungerar inte.')
         if path != '/inkopslista/rad':
             return self.not_found()
         key = f.get('key', '')
@@ -969,7 +1040,8 @@ class Handler(BaseHTTPRequestHandler):
         u = self.user()
         if not u:
             return self.json(401, {'error': 'inte inloggad'})
-        self.json(200, {'username': u['username'], 'isAdmin': u['is_admin'], 'csrf': self.session()['csrf']})
+        self.json(200, {'username': u['username'], 'isAdmin': u['is_admin'], 'csrf': self.session()['csrf'],
+                        'prefs': {'lowGrams': _int(db.get_pref(u['id'], 'low_grams'), LOW_GRAMS_DEFAULT)}})
 
     def api_owned_get(self):
         u = self.user()
@@ -999,6 +1071,98 @@ class Handler(BaseHTTPRequestHandler):
         items = sorted(set(items))
         db.set_owned(u['id'], items)
         self.json(200, {'items': items, 'saved': True})
+
+    def _json_body(self, limit=MAX_BODY):
+        """Gemensam kontroll för JSON-API:er som ändrar något. Returnerar (användare, data) eller (None, None)."""
+        u = self.user()
+        if not u or u['must_change_pw']:
+            self.json(401, {'error': 'inte inloggad'})
+            return None, None
+        if not self.check_csrf():
+            self.json(403, {'error': 'ogiltig token'})
+            return None, None
+        if not (self.headers.get('Content-Type') or '').startswith('application/json'):
+            self.json(415, {'error': 'JSON krävs'})
+            return None, None
+        if getattr(self, '_cl', 0) > limit:
+            self.json(413, {'error': 'för stor'})
+            return None, None
+        try:
+            data = json.loads(self.read_body(limit))
+            if not isinstance(data, dict):
+                raise ValueError
+        except ValueError:
+            self.json(400, {'error': 'ogiltig data'})
+            return None, None
+        return u, data
+
+    def api_wish_get(self):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        self.json(200, {'items': db.get_wish(u['id'])})
+
+    def api_wish_put(self):
+        u, data = self._json_body()
+        if not u:
+            return
+        items = data.get('items')
+        names = _catalog_names()
+        if not isinstance(items, list) or len(items) > 2000 or not all(isinstance(x, str) and x in names for x in items):
+            return self.json(400, {'error': 'ogiltig data'})
+        items = sorted(set(items))
+        db.set_wish(u['id'], items)
+        self.json(200, {'items': items})
+
+    def api_prefs_put(self):
+        u, data = self._json_body(4096)
+        if not u:
+            return
+        g = data.get('lowGrams')
+        if not isinstance(g, int) or isinstance(g, bool) or not 0 <= g <= 1000:
+            return self.json(400, {'error': 'ogiltig data'})
+        db.set_pref(u['id'], 'low_grams', g)
+        self.json(200, {'lowGrams': g})
+
+    def api_cart_add(self):
+        """Lägg flera färger i listan på en gång (t.ex. alla som snart är slut). Finns de redan ändras inget."""
+        u, data = self._json_body()
+        if not u:
+            return
+        keys = data.get('keys')
+        names = _catalog_names()
+        if not isinstance(keys, list) or len(keys) > db.CART_MAX_ITEMS or not all(isinstance(k, str) and k in names for k in keys):
+            return self.json(400, {'error': 'ogiltig data'})
+        have = {r['key'] for r in db.get_cart(u['id'])}
+        added = 0
+        for k in dict.fromkeys(keys):
+            if k in have:
+                continue
+            if not db.set_cart_item(u['id'], k, 1, 'any'):
+                break
+            added += 1
+        self.json(200, {'added': added, 'items': [{'key': r['key'], 'qty': r['qty'], 'pack': r['pack']}
+                                                 for r in db.get_cart(u['id'])]})
+
+    def api_history(self):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        key = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get('key', [''])[0]
+        if key not in _catalog_names():
+            return self.json(400, {'error': 'okänd färg'})
+        offers, _ = cart.load_offers()
+        self.json(200, {'key': key, 'series': history.series(key, offers)})
+
+
+def _int(v, default):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+LOW_GRAMS_DEFAULT = 200
 
 
 class Server(ThreadingHTTPServer):

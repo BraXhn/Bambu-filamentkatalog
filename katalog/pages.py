@@ -1,4 +1,4 @@
-"""HTML för inloggning, konto och administration. Inga skript: vanliga formulär fungerar med strikt CSP."""
+"""HTML för inloggning, konto och administration. Vanliga formulär; bara små skript från /assets (strikt CSP)."""
 import datetime
 import json
 import re
@@ -33,7 +33,7 @@ def fmt_rel(ts):
     return fmt_time(ts)
 
 
-def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=None):
+def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=None, scripts=()):
     nav = ''
     if user:
         items = [('/', 'Katalog', 'katalog'), ('/inkopslista', 'Inköpslista', 'inkop'), ('/konto', 'Mitt konto', 'konto')]
@@ -48,7 +48,7 @@ def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=Non
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="same-origin">{meta}
 <title>{e(title)} · {e(config.SITE_NAME)}</title><link rel="stylesheet" href="/assets/ui.css">
-<link rel="icon" href="/assets/icon.svg" type="image/svg+xml"></head><body>
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">{''.join(f'<script src="{e(x)}" defer></script>' for x in scripts)}</head><body>
 <header class="top"><a class="brand" href="/"><i>▥</i> BAMBU <span>/ filamentkatalog</span></a>{nav}</header>
 <main class="page{' narrow' if narrow else ''}">{body}</main>
 <footer class="foot">{e(config.SITE_NAME)}<br>Created by Helicon &amp; BraXhn</footer></body></html>"""
@@ -139,6 +139,31 @@ def _run_sources(summary):
     return '<div class="sources">' + ''.join(out) + '</div>'
 
 
+ALERT_RUNS = 2   # så många misslyckade körningar i rad innan en källa varnas
+
+
+def source_alerts(runs):
+    """[(etikett, antal misslyckade i rad, senaste fel)] för källor som fallerat i de senaste körningarna."""
+    streak, label, err, done = {}, {}, {}, set()
+    for r in runs:                      # nyast först
+        if r['status'] == 'running':
+            continue
+        try:
+            summ = json.loads(r['summary'] or '{}')
+        except ValueError:
+            continue
+        for sid, v in summ.items():
+            if sid.startswith('_') or not isinstance(v, dict) or v.get('status') == 'skipped' or sid in done:
+                continue
+            if v.get('status') == 'failed':
+                streak[sid] = streak.get(sid, 0) + 1
+                label.setdefault(sid, v.get('label', sid))
+                err.setdefault(sid, v.get('error', ''))
+            else:
+                done.add(sid)
+    return [(label[k], n, err[k]) for k, n in streak.items() if n >= ALERT_RUNS]
+
+
 def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', secret=None):
     running = any(r['status'] == 'running' for r in runs)
     last_done = next((r for r in runs if r['status'] != 'running'), None)
@@ -155,6 +180,9 @@ def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', s
         log = (f'<details><summary>Visa logg</summary><pre>{e(r["log"] or "")}</pre></details>') if r['log'] else ''
         rows += (f'<tr><td>{fmt_time(r["started"])}<br><span class="muted" style="font-size:12px">{e(TRIGGER.get(r["trigger"], r["trigger"]))}'
                  f' · {dur}</span></td><td>{_badge(r["status"])}</td><td>{_run_sources(r["summary"])}{log}</td></tr>')
+    alerts = ''.join(f'<div class="msg warn" role="status"><b>{e(lbl)}</b> har misslyckats {n} körningar i rad. '
+                     f'Butiken kan ha ändrat sitt sidformat; tidigare priser visas tills vidare.'
+                     f'{"<br><span class=muted>" + e(err) + "</span>" if err else ""}</div>' for lbl, n, err in source_alerts(runs))
     runs_table = (f'<div class="tablewrap mt"><table><thead><tr><th>Startad</th><th>Resultat</th><th>Källor (antal erbjudanden)</th></tr>'
                   f'</thead><tbody>{rows}</tbody></table></div>') if rows else ''
     prices = f"""<section class="card" id="priser"><h2>Prisuppdatering</h2>
@@ -165,7 +193,7 @@ def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', s
 <form method="post" action="/admin/priser/uppdatera"><input type="hidden" name="csrf" value="{e(csrf)}">
 <button class="btn" type="submit"{' disabled' if running else ''}>{'Uppdatering pågår…' if running else 'Uppdatera priser nu'}</button>
 <span class="muted" style="font-size:13px;margin-left:8px">{'Sidan laddas om automatiskt.' if running else 'Tar normalt 10–20 minuter.'}</span></form>
-{runs_table}</section>"""
+{alerts}{runs_table}</section>"""
 
     # --- användare ---
     now = datetime.datetime.now().timestamp()
@@ -206,8 +234,15 @@ def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', s
 <div><button class="btn" type="submit">Lägg till</button></div></div>
 <p class="muted" style="font-size:12px;margin:10px 0 0">Användaren får byta lösenord vid första inloggningen.</p></form></section>"""
 
-    body = f"""<h1>Administration</h1><p class="lead">Användare och prisuppdatering.</p>
-{message(msg_kind, e(msg))}{secret_html}{prices}{users_html}"""
+    backup = f"""<section class="card" id="sakerhetskopia"><h2>Säkerhetskopia</h2>
+<p class="sub">Laddar ner databasen (användare, markeringar, inköpslistor, Bambu-kopplingar) och prishistoriken som en zip-fil.
+Filen innehåller lösenordshashar och inloggningar till Bambu Lab – förvara den säkert.
+Återställ genom att stoppa containern, packa upp filen i datamappen och starta igen.</p>
+<form method="post" action="/admin/sakerhetskopia"><input type="hidden" name="csrf" value="{e(csrf)}">
+<button class="btn ghost" type="submit">Ladda ner säkerhetskopia</button></form></section>"""
+
+    body = f"""<h1>Administration</h1><p class="lead">Användare, prisuppdatering och säkerhetskopia.</p>
+{message(msg_kind, e(msg))}{secret_html}{prices}{users_html}{backup}"""
     return layout('Administration', body, user, csrf, 'admin', refresh=15 if running else None)
 
 
@@ -362,23 +397,22 @@ def _bulk_box(sh):
             f'<span style="font-size:12px">{terms}</span></div>')
 
 
-def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg=''):
-    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
-    if not items:
-        body = f"""<h1>Inköpslista</h1><p class="lead">Lägg till filament med knappen <b>+ Inköpslista</b> på korten i katalogen.
-Här ser du sedan var varje filament är billigast att köpa och vad allt kostar.</p>{message(msg_kind, e(msg))}
-<p><a class="btn" href="/">Till katalogen</a></p>"""
-        return layout('Inköpslista', body, user, csrf, 'inkop')
-    t = plan['totals']
-    est = ' (uppskattad frakt ingår)' if t['estimated'] else ''
-    when = ''
+def _when(checked_at):
     if checked_at:
         try:
-            when = datetime.datetime.fromisoformat(checked_at.replace('Z', '+00:00')).astimezone(TZ).strftime('%Y-%m-%d %H:%M')
+            return datetime.datetime.fromisoformat(checked_at.replace('Z', '+00:00')).astimezone(TZ).strftime('%Y-%m-%d %H:%M')
         except ValueError:
             pass
+    return ''
+
+
+def _plan_html(plan, checked_at, title_total='Uppskattat totalt'):
+    """Summering, butiker och saknade varor – samma på den egna och den delade inköpslistan."""
+    t = plan['totals']
+    est = ' (uppskattad frakt ingår)' if t['estimated'] else ''
+    when = _when(checked_at)
     summary = f"""<section class="card"><div class="stats">
-<div class="stat"><span>Uppskattat totalt</span><strong style="font-size:24px">{_kr(t['total'])}</strong></div>
+<div class="stat"><span>{e(title_total)}</span><strong style="font-size:24px">{_kr(t['total'])}</strong></div>
 <div class="stat"><span>Varor</span><strong>{_kr(t['goods'])}</strong></div>
 {f'<div class="stat"><span>Mängdrabatter</span><strong style="color:var(--ok,#16a34a)">−{_kr(t["discount"])}</strong></div>' if t.get('discount') else ''}
 <div class="stat"><span>Frakt{' (delvis uppskattad)' if t['estimated'] else ''}</span><strong>{_kr(t['shipping'])}</strong></div>
@@ -400,8 +434,8 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
                         f'<br><span class="badge ok">mängdrabatt</span></td>'
                         f'<td class="right"><b>{_kr(l["bulkPrice"] * l["qty"])}</b></td>' if l.get('bulkPrice') else
                         f'<td class="right">{l["qty"]} × {_kr(o["price"])}</td><td class="right"><b>{_kr(o["price"] * l["qty"])}</b></td>')
-                     + 
-                     f'<td class="right"><a class="btn small" href="{_safe_href(o.get("url"))}" target="_blank" rel="noopener">Köp här ↗</a></td></tr>')
+                     + f'<td class="right"><a class="btn small" href="{_safe_href(o.get("url"))}" target="_blank" rel="noopener">Köp här ↗</a>'
+                       f'<span class="print-only">{e(o.get("url", ""))}</span></td></tr>')
         bulk = _bulk_box(sh)
         ship = f'{_kr(sh["shipping"])}{" (uppskattad)" if sh["estimated"] else ""}'
         fee = f' · köparskydd {_kr(sh["fee"])}' if sh['fee'] else ''
@@ -424,6 +458,55 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
                       f'<a href="https://www.tradera.com/search?q={q}" target="_blank" rel="noopener">Tradera ↗</a></li>')
         missing = (f'<section class="card"><h2>Inget köpbart erbjudande just nu</h2><p class="sub">Ingår inte i totalen.</p>'
                    f'<ul style="margin:0;padding-left:18px;line-height:1.9">{mrows}</ul></section>')
+    return summary + shops + missing
+
+
+def _print_button():
+    return '<button class="btn ghost small no-print" type="button" data-print>Skriv ut</button>'
+
+
+def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg='', budget=None, waiting=(),
+                  full=None, shared=False, share_url=None):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    if not items:
+        body = f"""<h1>Inköpslista</h1><p class="lead">Lägg till filament med knappen <b>+ Inköpslista</b> på korten i katalogen.
+Här ser du sedan var varje filament är billigast att köpa och vad allt kostar.</p>{message(msg_kind, e(msg))}
+<p><a class="btn" href="/">Till katalogen</a></p>"""
+        return layout('Inköpslista', body, user, csrf, 'inkop')
+    full = full or plan
+    pending = not full.get('complete', True)
+    pending_html = ('<div class="msg warn no-print" role="status">Listan är stor, så planen räknas fortfarande fram i bakgrunden. '
+                    'Sidan laddas om automatiskt när en billigare fördelning kan finnas.</div>') if pending else ''
+
+    # --- budget ---
+    wait_html = ''
+    if budget and waiting:
+        wrows = ''.join(f'<li><b>{e(k.split("|")[0])} · {e(names.get(k, k.split("|")[-1]))}</b> ({q} st'
+                        f'{", " + e(p) if p != "any" else ""})</li>' for k, q, p in waiting)
+        wait_html = (f'<section class="card"><h2>Kan vänta</h2><p class="sub">Ryms inte i budgeten på {_kr(budget)}. '
+                     f'Hela listan kostar {_kr(full["totals"]["total"])}. Det som inte är på rea just nu och är dyrast väntar först – '
+                     f'håll utkik efter erbjudanden i katalogen.</p><ul style="margin:0;padding-left:18px;line-height:1.9">{wrows}</ul></section>')
+    elif budget:
+        wait_html = f'<div class="msg ok" role="status">Hela listan ryms i budgeten på {_kr(budget)}.</div>'
+    budget_form = f"""<form method="post" action="/inkopslista/budget" class="row no-print" style="margin-top:12px">{h}
+<div class="field" style="max-width:220px"><label for="budget">Budget (kr)</label>
+<input id="budget" name="budget" type="text" inputmode="numeric" maxlength="9" value="{e(str(budget or ''))}" placeholder="Ingen gräns"></div>
+<div><button class="btn ghost small" type="submit" name="do" value="spara">Spara budget</button>
+{'<button class="btn danger small" type="submit" name="do" value="ta-bort">Ta bort budget</button>' if budget else ''}</div></form>"""
+
+    # --- delning ---
+    if share_url:
+        share_box = (f'<p class="sub">Din länk (visas bara nu):</p><p><input type="text" readonly value="{e(share_url)}" '
+                     f'aria-label="Delningslänk" style="width:100%"></p>')
+    else:
+        share_box = ('<p class="sub">Listan delas just nu via en länk. Skapa en ny länk om du har tappat bort den – den gamla slutar då gälla.</p>'
+                     if shared else '<p class="sub">Skapa en länk som visar listan utan inloggning, t.ex. så att någon annan kan beställa åt dig. '
+                                    'Den som har länken ser listan men kan inte ändra något.</p>')
+    share_html = f"""<section class="card no-print"><h2>Dela listan</h2>{share_box}<div class="row">
+<form method="post" action="/inkopslista/dela">{h}<button class="btn ghost small" type="submit">{'Skapa ny länk' if shared or share_url else 'Skapa delningslänk'}</button></form>
+{f'<form method="post" action="/inkopslista/sluta-dela">{h}<button class="btn danger small" type="submit">Sluta dela</button></form>' if shared or share_url else ''}
+{_print_button()}</div></section>"""
+
     edit_rows = ''
     for key, qty, pack in items:
         label = names.get(key, key.split('|')[-1])
@@ -436,9 +519,20 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
 <select name="pack" aria-label="Förpackning" style="width:auto;padding:8px">{opts}</select>
 <button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
 <button class="btn danger small" type="submit" name="do" value="ta-bort">Ta bort</button></form></td></tr>"""
-    edit = f"""<section class="card"><h2>Ändra listan</h2><p class="sub">Antal 0 tar bort raden. Välj förpackning om du bara vill ha spole eller refill.</p>
-<div class="tablewrap"><table><tbody>{edit_rows}</tbody></table></div>
+    edit = f"""<section class="card no-print"><h2>Ändra listan</h2><p class="sub">Antal 0 tar bort raden. Välj förpackning om du bara vill ha spole eller refill.
+Med en budget visas vad du kan köpa nu och vad som kan vänta.</p>
+<div class="tablewrap"><table><tbody>{edit_rows}</tbody></table></div>{budget_form}
 <form method="post" action="/inkopslista/tom" class="mt">{h}<button class="btn danger small" type="submit">Töm listan</button></form></section>"""
+    plan_html = _plan_html(plan, checked_at, 'Köp nu' if budget and waiting else 'Uppskattat totalt') if plan['totals']['units'] or plan['missing'] else ''
     body = (f'<h1>Inköpslista</h1><p class="lead">Var du bör köpa varje filament och vad det kostar totalt.</p>'
-            f'{message(msg_kind, e(msg))}{summary}{shops}{missing}{edit}')
-    return layout('Inköpslista', body, user, csrf, 'inkop')
+            f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{share_html}')
+    return layout('Inköpslista', body, user, csrf, 'inkop', refresh=8 if pending else None, scripts=('/assets/print.js',))
+
+
+def shared_list(owner, plan, checked_at):
+    if not plan:
+        body = f'<h1>Inköpslista</h1><p class="lead">{e(owner)}s inköpslista är tom just nu.</p>'
+    else:
+        body = (f'<h1>Inköpslista</h1><p class="lead">Delad av <b>{e(owner)}</b>. Var varje filament är billigast att köpa och vad det kostar. '
+                f'Listan uppdateras när {e(owner)} ändrar den.</p><p class="no-print">{_print_button()}</p>{_plan_html(plan, checked_at)}')
+    return layout('Delad inköpslista', body, scripts=('/assets/print.js',))

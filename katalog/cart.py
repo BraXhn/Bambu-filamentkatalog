@@ -12,6 +12,8 @@ Tradera-annonser räknas som en vara per annons; butiker har obegränsat antal.
 """
 import datetime
 import json
+import queue
+import threading
 import time
 from collections import defaultdict
 
@@ -198,6 +200,7 @@ def plan(items, offers, catalog, now=None, budget=2.0):
     # Förbättringsstegen växer snabbt med antalet enheter och håller GIL: efter tidsbudgeten används
     # bästa lösningen hittills så att en stor lista inte låser hela servern.
     deadline = time.monotonic() + budget
+    timed_out = []
     by_key = {d['type'] + '|' + (d['code'] or d['name']): d for d in catalog}
     units, cands, missing = [], [], []
     for key, qty, pack in items:
@@ -227,6 +230,7 @@ def plan(items, offers, catalog, now=None, budget=2.0):
             improved = False
             for i, c in enumerate(cands):
                 if time.monotonic() > deadline:
+                    timed_out.append(1)
                     return best
                 current = assign[i]
                 for o in c:
@@ -254,6 +258,7 @@ def plan(items, offers, catalog, now=None, budget=2.0):
         improved = False
         for g, typ in trials:
             if time.monotonic() > deadline:
+                timed_out.append(1)
                 break
             trial = list(assign)
             for i, c in enumerate(cands):
@@ -316,7 +321,7 @@ def plan(items, offers, catalog, now=None, budget=2.0):
         else:
             merged[k] = dict(m)
     missing = list(merged.values())
-    return {'shops': shops, 'missing': missing, 'totals': totals}
+    return {'shops': shops, 'missing': missing, 'totals': totals, 'complete': not timed_out}
 
 
 def load_offers():
@@ -327,3 +332,112 @@ def load_offers():
         except (OSError, ValueError):
             continue
     return [], None
+
+
+# --- Budget: vilka enheter som får vänta ---
+def within_budget(items, offers, catalog, limit, base=None, now=None):
+    """Delar listan i det som ryms i budgeten och det som får vänta.
+
+    Väntar gör i första hand det som inte är på rea just nu, dyraste först (då är chansen störst att ett
+    erbjudande dyker upp senare). Returnerar (plan för det som köps nu, [(key, qty, pack)] som väntar).
+    """
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    base = base or plan(items, offers, catalog, now)
+    if base['totals']['total'] <= limit:
+        return base, []
+    unit_cost = {}
+    for sh in base['shops']:
+        for l in sh['lines']:
+            o = l['offer']
+            unit_cost[l['key']] = (bool(o.get('discount')), l.get('bulkPrice') or o['price'])
+    # Enheter i den ordning de ska vänta.
+    order = []
+    for key, qty, pack in items:
+        if key in unit_cost:
+            order += [(key, pack)] * qty
+    order.sort(key=lambda u: (unit_cost[u[0]][0], -unit_cost[u[0]][1]))
+    waiting = defaultdict(int)
+    current = base
+    deadline = time.monotonic() + 3
+    while order and current['totals']['total'] > limit and time.monotonic() < deadline:
+        # Skjut upp så många enheter som behövs för att täcka överskottet, sedan räkna om (frakten ändras).
+        over = current['totals']['total'] - limit
+        while order and over > 0:
+            key, pack = order.pop(0)
+            waiting[(key, pack)] += 1
+            over -= unit_cost[key][1]
+        rest = [(k, q - waiting[(k, p)], p) for k, q, p in items if q - waiting[(k, p)] > 0]
+        current = plan(rest, offers, catalog, now, budget=0.3)
+    wait = [(k, q, p) for (k, p), q in waiting.items() if q > 0]
+    return current, wait
+
+
+# --- Cache och beräkning i bakgrunden ---
+_cache = {}                 # user_id -> (signatur, plan)
+_cache_lock = threading.Lock()
+_queue = queue.Queue()
+_worker = None
+BACKGROUND_BUDGET = 20.0
+
+
+def _signature(items, checked):
+    return (tuple(items), checked)
+
+
+def cached_plan(user_id, items, offers, catalog, checked):
+    """Planen för användarens lista: färdig från cachen om den finns, annars en snabb plan nu och en
+    grundligare i bakgrunden (sidan visar då att den kan bli bättre)."""
+    sig = _signature(items, checked)
+    with _cache_lock:
+        hit = _cache.get(user_id)
+    if hit and hit[0] == sig:
+        return hit[1]
+    p = plan(items, offers, catalog)
+    with _cache_lock:
+        _cache[user_id] = (sig, p)
+    if not p['complete']:
+        refresh(user_id, items)
+    return p
+
+
+def refresh(user_id, items=None):
+    """Lägg en grundlig omräkning i kö (items=None: läs listan ur databasen i bakgrundstråden)."""
+    global _worker
+    with _cache_lock:
+        if _worker is None or not _worker.is_alive():
+            _worker = threading.Thread(target=_work, name='cart-plans', daemon=True)
+            _worker.start()
+    _queue.put((user_id, items))
+
+
+def refresh_all():
+    """Efter en prisuppdatering: räkna om alla listor så att sidan visar färdiga planer direkt."""
+    from . import db
+    for uid in db.carts_in_use():
+        refresh(uid)
+
+
+def _work():
+    from . import db
+    while True:
+        user_id, items = _queue.get()
+        try:
+            if items is None:
+                items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(user_id)]
+            offers, checked = load_offers()
+            catalog = json.loads(config.CATALOG_PATH.read_text(encoding='utf-8'))
+            sig = _signature(items, checked)
+            with _cache_lock:
+                hit = _cache.get(user_id)
+            if hit and hit[0] == sig and hit[1]['complete']:
+                continue
+            p = plan(items, offers, catalog, budget=BACKGROUND_BUDGET)
+            p['complete'] = True        # bästa vi hittar: visa inte "förbättras" i all oändlighet
+            with _cache_lock:
+                _cache[user_id] = (sig, p)
+        except Exception as ex:  # noqa: BLE001
+            print(f'[inköpslista] fel i bakgrundsberäkning: {ex!r}', flush=True)
+            with _cache_lock:           # sidan ska inte ladda om i väntan på något som aldrig kommer
+                hit = _cache.get(user_id)
+                if hit:
+                    hit[1]['complete'] = True

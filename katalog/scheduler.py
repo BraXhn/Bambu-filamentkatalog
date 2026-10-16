@@ -102,7 +102,9 @@ def _loop():
             nxt = None
         if kind:
             try:
-                run_now(kind)
+                if run_now(kind) in ('ok', 'partial'):
+                    from . import cart
+                    cart.refresh_all()   # nya priser: räkna om inköpslistorna i bakgrunden
             except Exception as ex:  # noqa: BLE001
                 print(f'[priser] fel: {ex}', flush=True)
         # Bambu Lab-synk för kopplade konton.
