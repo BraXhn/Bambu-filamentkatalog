@@ -285,5 +285,33 @@ class UpdateMerge(unittest.TestCase):
         self.assertTrue((config.WWW_DIR / 'offers.json.gz').exists())
 
 
+class History(unittest.TestCase):
+    def test_series_per_shop_and_pack(self):
+        from katalog import history
+        tmp = Path(tempfile.mkdtemp())
+        saved = config.STATE_DIR
+        try:
+            config.STATE_DIR = tmp
+            (tmp / 'price_history.json').write_text(json.dumps({
+                'PLA Basic|10101|https://www.3djake.se/a|Spole': {'2026-10-01': 299, '2026-10-02': 279},
+                'PLA Basic|10101|https://www.tradera.com/item/1|Spole': {'2026-10-01': 250},
+                'PLA Basic|10101|https://www.tradera.com/item/2|Spole': {'2026-10-01': 240, '2026-10-02': 260},
+                'PLA Basic|10102|https://www.3djake.se/b|Refill': {'2026-10-01': 199}}), encoding='utf-8')
+            got = history.series('PLA Basic|10101', [{'url': 'https://www.3djake.se/a', 'shop': '3DJake Sverige'}])
+            self.assertEqual(got, [{'shop': '3DJake Sverige', 'pack': 'Spole', 'points': [['2026-10-01', 299], ['2026-10-02', 279]]},
+                                   {'shop': 'Tradera', 'pack': 'Spole', 'points': [['2026-10-01', 240], ['2026-10-02', 260]]}])
+        finally:
+            config.STATE_DIR = saved
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_source_alerts(self):
+        from katalog import pages
+        def run(status):
+            return {'status': 'partial', 'summary': json.dumps({'3djake': {'label': '3DJake', 'status': status, 'error': 'HTTP 500'},
+                                                                 'tradera': {'label': 'Tradera', 'status': 'ok'}})}
+        self.assertEqual(pages.source_alerts([run('failed'), run('failed'), run('ok')]), [('3DJake', 2, 'HTTP 500')])
+        self.assertEqual(pages.source_alerts([run('failed'), run('ok'), run('failed')]), [])
+
+
 if __name__ == '__main__':
     unittest.main()

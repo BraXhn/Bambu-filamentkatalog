@@ -44,3 +44,6 @@ footer.foot{color:var(--muted);font-size:12px;text-align:center;padding:20px;lin
 .cart-edit{gap:8px;flex-wrap:wrap;align-items:center}
 @media (max-width:640px){.stats{grid-template-columns:1fr 1fr;gap:8px}.stat{padding:10px 12px}.stat strong{font-size:15px}
 .cart-row td{display:block;border-bottom:0;padding:8px 10px}.cart-row td:first-child{padding-top:12px}.cart-row{border-bottom:1px solid #eef0e9;display:block}}
+.print-only{display:none}
+@media print{header.top,footer.foot,.no-print,.btn{display:none!important}.print-only{display:block;font-size:10px;color:#444;word-break:break-all}
+body{background:#fff}.card{border:1px solid #ccc;break-inside:avoid;padding:14px;margin-bottom:12px}main.page{padding:0}}

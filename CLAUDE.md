@@ -16,7 +16,8 @@ commit-meddelanden och svar till användaren är på svenska.
   och serveras `no-store`; versionerade filer är `immutable`. Ändrar du `dist/*.js` behövs inget mer.
 - `dist/` – katalogdata (`data.json`), webbapp (`index.html`, `app.js`, `prices-ui.js`) och seed `offers.json`.
 - `katalog/db.py` – SQLite (DELETE-journal, inte WAL: Unraids FUSE klarar inte WAL). Tabeller:
-  users, sessions (bara token-hash), owned, cart, runs, settings, bambu_links, bambu_pending.
+  users, sessions (bara token-hash), owned, wish, cart, prefs (budget, low_grams), cart_shares (bara token-hash),
+  runs, settings, bambu_links, bambu_pending.
 - `katalog/security.py` – scrypt, rate limiters. `katalog/config.py` – alla miljövariabler med säkra standardvärden.
 - `katalog/bambu.py` – inofficiellt Bambu-moln-API (inloggning med e-postkod/TFA, filamentbibliotek), matchning
   mot katalogen. Testas mot `tests/fake_bambu.py` via `KATALOG_BAMBU_TEST_BASE`.
@@ -25,6 +26,11 @@ commit-meddelanden och svar till användaren är på svenska.
   (girig start + enkelflyttar + samlingsdrag). Fraktregler i `SHOPS`. Mängdrabatter: Bambu Lab EU
   (fasta €-nivåpriser per filamenttyp, `BAMBU_BULK_*`) och procentnivåer per produkt från erbjudandets
   `bulk`/`bulkGroup` (3DVerkstan). Rabatten ska alltid redovisas tydligt i inköpslistan.
+  `plan()` har en tidsbudget; `cached_plan()` cachar per användare och räknar om stora listor i en bakgrundstråd
+  (även efter varje prisuppdatering). `within_budget()` delar listan i "köp nu" och "kan vänta".
+- `katalog/history.py` – prishistorik per färg för diagrammet (`/api/history`), läser `state/price_history.json`.
+- `/delad/<token>` visar en inköpslista utan inloggning (skrivskyddad). Serverrenderade sidor får bara skript
+  från `/assets/` (t.ex. `print.js`), aldrig inline.
 
 ## Prishämtning (`katalog/prices/`)
 

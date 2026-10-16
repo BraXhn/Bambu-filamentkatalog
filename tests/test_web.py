@@ -96,6 +96,32 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/api/cart',b'{"key":"PLA Basic|10101","qty":1e999}','PUT',J); ok(s==400,'qty=1e999 ger 400: %s'%s)
         sid='; '.join(f'{c.name}={c.value}' for c in acj)
         s,h,b=req(a,'/api/me',headers={'Cookie':'pref={"t":1}; '+sid}); ok(s==200,'främmande cookie med JSON stör inte sessionen: %s'%s)
+        # önskelista, inställningar, flera i listan, prishistorik
+        s,h,b=req(a,'/api/wish',json.dumps({'items':['PLA Basic|10101','PLA Basic|10101']}).encode(),'PUT',J); ok(s==200 and json.loads(b)['items']==['PLA Basic|10101'],'spara önskelista: %s'%b)
+        s,h,b=req(a,'/api/wish',json.dumps({'items':['finns inte']}).encode(),'PUT',J); ok(s==400,'okänd färg på önskelistan nekas')
+        s,h,b=req(a,'/api/wish'); ok(json.loads(b)['items']==['PLA Basic|10101'],'läs önskelista')
+        s,h,b=req(a,'/api/prefs',json.dumps({'lowGrams':300}).encode(),'PUT',J); ok(s==200,'spara gräns för snart slut')
+        s,h,b=req(a,'/api/me'); ok(json.loads(b)['prefs']['lowGrams']==300,'gränsen syns i api/me')
+        s,h,b=req(a,'/api/cart/add',json.dumps({'keys':['PLA Basic|10101','PLA Basic|10100']}).encode(),'PUT',J); c=json.loads(b)
+        ok(s==200 and c['added']==1 and {i['key']:i['qty'] for i in c['items']}=={'PLA Basic|10101':2,'PLA Basic|10100':1},'lägg flera i listan, befintliga orörda: %s'%b)
+        s,h,b=req(a,'/api/history?key=PLA%20Basic%7C10101'); ok(s==200 and json.loads(b)['series']==[],'prishistorik utan data')
+        s,h,b=req(a,'/api/history?key=x'); ok(s==400,'prishistorik för okänd färg nekas')
+        # budget och delning
+        s,h,b=req(a,'/inkopslista'); t6=csrf(b); ok(s==200 and 'Dela listan' in b and 'data-print' in b,'inköpslistan har delning och utskrift')
+        s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'1','do':'spara'}); ok(s==303,'spara budget')
+        s,h,b=req(a,'/inkopslista'); ok('Kan vänta' in b or 'Inget köpbart' in b,'budget visar det som får vänta')
+        s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'abc','do':'spara'}); ok(s==400,'ogiltig budget nekas')
+        s,h,b=req(a,'/inkopslista/dela',{'csrf':t6}); link=re.search(r'value="(https?://[^"]+/delad/[^"]+)"',b); ok(s==200 and link,'skapa delningslänk')
+        anon,_=client(); path=urllib.parse.urlsplit(link.group(1)).path
+        s,h,b=req(anon,path); ok(s==200 and 'Delad av' in b and 'csrf' not in b,'delad lista visas utan inloggning')
+        s,h,b=req(a,'/inkopslista/dela',{'csrf':t6}); s,h,b=req(anon,path); ok(s==404,'gammal länk slutar gälla när en ny skapas')
+        s,h,b=req(anon,'/delad/'+'x'*43); ok(s==404,'påhittad länk ger 404')
+        # säkerhetskopia
+        s,h,b=req(a,'/admin'); t7=csrf(b)
+        r=urllib.request.Request(B+'/admin/sakerhetskopia',data=urllib.parse.urlencode({'csrf':t7}).encode(),headers={'Host':f'127.0.0.1:{self.port}','Origin':B})
+        with a.open(r) as x: z=x.read(); ct=x.headers['Content-Type']
+        import io, zipfile; names=zipfile.ZipFile(io.BytesIO(z)).namelist(); ok(ct=='application/zip' and 'katalog.db' in names,'säkerhetskopia: %s'%names)
+        s,h,b=req(a,'/admin/sakerhetskopia',{'csrf':'fel'}); ok(s==403,'säkerhetskopia kräver csrf')
         s,h,b=req(a,'/login?next=/%E2%98%83'); ok(s==303 and h.get('Location')=='/%E2%98%83','next utanför latin-1 procentkodas: %s %s'%(s,h.get('Location')))
         # lisa
         l,_=client(); s,h,b=req(l,'/login?next=/'); t2=csrf(b)

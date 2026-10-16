@@ -70,6 +70,22 @@ CREATE TABLE IF NOT EXISTS bambu_links (
     matched TEXT,                       -- JSON {katalognyckel: {grams, total, spools}}
     unmatched TEXT                      -- JSON [{name, color, grams}]
 );
+CREATE TABLE IF NOT EXISTS wish (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    items TEXT NOT NULL,                -- JSON-lista med katalognycklar
+    updated REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prefs (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,                  -- t.ex. budget, low_grams
+    value TEXT NOT NULL,
+    PRIMARY KEY (user_id, key)
+);
+CREATE TABLE IF NOT EXISTS cart_shares (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,    -- sha256 av delningslänkens token (själva token lagras aldrig)
+    created REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS bambu_pending (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     account TEXT NOT NULL,
@@ -276,6 +292,70 @@ def set_owned(user_id, items):
         c.execute('INSERT INTO owned(user_id,items,updated) VALUES(?,?,?) '
                   'ON CONFLICT(user_id) DO UPDATE SET items=excluded.items, updated=excluded.updated',
                   (user_id, json.dumps(items, ensure_ascii=False), time.time()))
+
+
+# --- önskelista ---
+def get_wish(user_id):
+    r = conn().execute('SELECT items FROM wish WHERE user_id=?', (user_id,)).fetchone()
+    return json.loads(r['items']) if r else []
+
+
+def set_wish(user_id, items):
+    with tx() as c:
+        c.execute('INSERT INTO wish(user_id,items,updated) VALUES(?,?,?) '
+                  'ON CONFLICT(user_id) DO UPDATE SET items=excluded.items, updated=excluded.updated',
+                  (user_id, json.dumps(items, ensure_ascii=False), time.time()))
+
+
+# --- inställningar per användare ---
+def get_pref(user_id, key, default=None):
+    r = conn().execute('SELECT value FROM prefs WHERE user_id=? AND key=?', (user_id, key)).fetchone()
+    return r['value'] if r else default
+
+
+def set_pref(user_id, key, value):
+    with tx() as c:
+        if value is None:
+            c.execute('DELETE FROM prefs WHERE user_id=? AND key=?', (user_id, key))
+        else:
+            c.execute('INSERT INTO prefs(user_id,key,value) VALUES(?,?,?) '
+                      'ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value', (user_id, key, str(value)))
+
+
+# --- delad inköpslista ---
+def get_share(user_id):
+    return conn().execute('SELECT * FROM cart_shares WHERE user_id=?', (user_id,)).fetchone()
+
+
+def set_share(user_id, token_hash):
+    with tx() as c:
+        c.execute('INSERT INTO cart_shares(user_id,token_hash,created) VALUES(?,?,?) ON CONFLICT(user_id) '
+                  'DO UPDATE SET token_hash=excluded.token_hash, created=excluded.created', (user_id, token_hash, time.time()))
+
+
+def delete_share(user_id):
+    with tx() as c:
+        c.execute('DELETE FROM cart_shares WHERE user_id=?', (user_id,))
+
+
+def share_user(token_hash):
+    r = conn().execute('SELECT user_id FROM cart_shares WHERE token_hash=?', (token_hash,)).fetchone()
+    return r['user_id'] if r else None
+
+
+def carts_in_use():
+    return [r['user_id'] for r in conn().execute('SELECT DISTINCT user_id FROM cart')]
+
+
+def backup_to(path):
+    """Konsekvent kopia av databasen (SQLite backup-API, fungerar medan servern skriver)."""
+    import sqlite3
+    dst = sqlite3.connect(str(path))
+    try:
+        with _lock:
+            conn().backup(dst)
+    finally:
+        dst.close()
 
 
 # --- runs ---
