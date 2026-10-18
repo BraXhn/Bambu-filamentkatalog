@@ -66,3 +66,9 @@ td{border-color:var(--line)}
 .secret{background:#141915}summary{color:#6fd39a}
 }
 @media print{:root{color-scheme:light;--ink:#18372a;--muted:#5f6f63;--card:#fff;--line:#ccc;--bg:#fff}}
+.el-chart{width:100%;height:auto;margin-top:8px}.el-chart .grid{stroke:var(--line);stroke-width:1}.el-chart .axis{fill:var(--muted);font-size:11px}
+.el-chart rect.base,.legend .dot.base{fill:#b9c4bc;background:#b9c4bc}.el-chart rect.win,.legend .dot.win{fill:#2a78d6;background:#2a78d6}
+.el-chart rect.cheap,.legend .dot.cheap{fill:#1baf7a;background:#1baf7a}
+.legend{list-style:none;padding:0;margin:8px 0;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px}.legend .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cost-color{min-width:220px}
+@media (prefers-color-scheme:dark){.el-chart rect.base,.legend .dot.base{fill:#4a564e;background:#4a564e}.el-chart rect.win,.legend .dot.win{fill:#3987e5;background:#3987e5}.el-chart rect.cheap,.legend .dot.cheap{fill:#199e70;background:#199e70}}

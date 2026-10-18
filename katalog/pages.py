@@ -37,7 +37,7 @@ def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=Non
     nav = ''
     if user:
         items = [('/', 'Katalog', 'katalog'), ('/onskelista', 'Önskelista', 'onske'), ('/inkopslista', 'Inköpslista', 'inkop'),
-                 ('/konto', 'Mitt konto', 'konto')]
+                 ('/kostnad', 'Kostnad', 'kostnad'), ('/konto', 'Mitt konto', 'konto')]
         if user['is_admin']:
             items.append(('/admin', 'Administration', 'admin'))
         links = ''.join(f'<a href="{h}"{" aria-current=page" if k == active else ""}>{t}</a>' for h, t, k in items)
@@ -623,3 +623,167 @@ Du får en avisering när en bevakning når ditt pris – en gång per träff, o
         notify_html = ''
     body = f'<h1>Önskelista</h1>{lead}{message(msg_kind, e(msg))}{summary}{table}{notify_html}'
     return layout('Önskelista', body, user, csrf, 'onske')
+
+
+# ---------- kostnadsräknare ----------
+def _num(v, d=2):
+    return f'{v:,.{d}f}'.replace(',', ' ').replace('.', ',')
+
+
+def _hm(hours):
+    h, m = divmod(round(hours * 60), 60)
+    return f'{h} h {m:02d} min' if h else f'{m} min'
+
+
+def _day_time(t, now):
+    days = (t.date() - now.date()).days
+    day = {0: 'i dag', 1: 'i morgon', -1: 'i går'}.get(days, t.strftime('%Y-%m-%d'))
+    return f'{day} {t:%H:%M}'
+
+
+def _price_chart(intervals, res):
+    """Elpris per intervall från nu och framåt; utskriftens fönster och det billigaste fönstret markeras."""
+    now = res['now']
+    pts = [(s, e, p) for s, e, p in intervals if e > now - datetime.timedelta(hours=1)]
+    if len(pts) < 2:
+        return ''
+    x0, x1 = pts[0][0], pts[-1][1]
+    lo, hi = min(0, min(p for _, _, p in pts)), max(p for _, _, p in pts) or 1
+    W, H, L, B, T = 760, 170, 46, 22, 8
+    X = lambda t: L + (t - x0).total_seconds() / (x1 - x0).total_seconds() * (W - L - 4)  # noqa: E731
+    Y = lambda v: T + (1 - (v - lo) / (hi - lo or 1)) * (H - T - B)  # noqa: E731
+    ws, we = res['start'], res['start'] + datetime.timedelta(hours=res['hours'])
+    cs = res['cheapest'][0] if res.get('cheapest') else None
+    ce = cs + datetime.timedelta(hours=res['hours']) if cs else None
+    bars = ''
+    for s, e, p in pts:
+        cls = 'win' if s < we and e > ws else ('cheap' if cs and s < ce and e > cs else 'base')
+        bars += (f'<rect class="{cls}" x="{X(s) + .5:.1f}" y="{Y(p):.1f}" width="{max(.8, X(e) - X(s) - 1):.1f}" '
+                 f'height="{max(0, Y(lo) - Y(p)):.1f}" rx="1"><title>{s:%H:%M}–{e:%H:%M}: {_num(p)} kr/kWh</title></rect>')
+    ticks = ''
+    step = (hi - lo) / 3
+    for i in range(4):
+        v = lo + step * i
+        ticks += f'<line x1="{L}" x2="{W}" y1="{Y(v):.1f}" y2="{Y(v):.1f}" class="grid"/><text x="{L - 6}" y="{Y(v) + 4:.1f}" text-anchor="end" class="axis">{_num(v)}</text>'
+    t = x0.replace(minute=0, second=0, microsecond=0)
+    while t <= x1:
+        if t >= x0 and t.hour % 6 == 0:
+            ticks += f'<text x="{X(t):.1f}" y="{H - 6}" text-anchor="middle" class="axis">{t:%H}:00{" " + t.strftime("%d/%m") if t.hour == 0 else ""}</text>'
+        t += datetime.timedelta(hours=1)
+    legend = ('<ul class="legend"><li><span class="dot win"></span>Din utskrift</li>'
+              + ('<li><span class="dot cheap"></span>Billigaste starttid</li>' if cs and cs != ws else '') +
+              '<li><span class="dot base"></span>Övriga tider</li></ul>')
+    rows = ''.join(f'<tr><td>{_day_time(s, now)}</td><td class="right">{_num(p)} kr/kWh</td></tr>' for s, e, p in pts)
+    return (f'<svg viewBox="0 0 {W} {H}" class="el-chart" role="img" aria-label="Elpris per kvart eller timme">{ticks}{bars}</svg>{legend}'
+            f'<details><summary>Visa elpriserna som tabell</summary><div class="tablewrap mt" style="max-height:260px;overflow:auto">'
+            f'<table><tbody>{rows}</tbody></table></div></details>')
+
+
+def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_kind='', msg=''):
+    from . import costcalc, energy
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    by_type = {}
+    for k in sorted(names, key=lambda k: (k.split('|')[0], names[k])):
+        by_type.setdefault(k.split('|')[0], []).append(k)
+
+    def color_select(i, selected):
+        opts = ''.join(f'<optgroup label="{e(t)}">' + ''.join(
+            f'<option value="{e(k)}"{" selected" if k == selected else ""}>{e(t)} · {e(names[k])}</option>' for k in ks) + '</optgroup>'
+            for t, ks in by_type.items())
+        return (f'<select name="k{i}" aria-label="Färg {i}" class="cost-color"><option value="">Annan färg / eget pris</option>{opts}</select>')
+    rows = ''
+    for i, (k, g) in enumerate(form['rows'], 1):
+        row = (f'<tr class="cost-row"><td>{color_select(i, k)}</td><td><input name="g{i}" type="text" inputmode="decimal" maxlength="8" '
+               f'value="{e(g)}" aria-label="Gram filament {i}" placeholder="gram" style="width:100px"></td></tr>')
+        rows += row if i <= 4 else ''
+    more = ''.join(
+        f'<tr class="cost-row"><td>{color_select(i, k)}</td><td><input name="g{i}" type="text" inputmode="decimal" maxlength="8" '
+        f'value="{e(g)}" aria-label="Gram filament {i}" placeholder="gram" style="width:100px"></td></tr>'
+        for i, (k, g) in enumerate(form['rows'], 1) if i > 4)
+    more_open = any(g for k, g in form['rows'][4:])
+    sel = lambda name, options, cur: ''.join(f'<option value="{e(v)}"{" selected" if v == cur else ""}>{e(t)}</option>' for v, t in options)  # noqa: E731
+    printers = ''.join(f'<option value="{w}" data-watts="{w}">{e(n)} · ca {w} W</option>' for _, n, w in costcalc.PRINTERS)
+    sources = [(v, t + ('' if v != 'tibber' or has_tibber else ' – koppla nedan')) for v, t in costcalc.SOURCES.items()]
+    form_html = f"""<form method="post" action="/kostnad/rakna" id="costForm">{h}
+<section class="card"><h2>Utskriften</h2>
+<p class="sub">Skriv in vad slicern (Bambu Studio, OrcaSlicer) visar, eller läs in filen nedan. Flera färger = en rad per färg.</p>
+<div class="row" style="margin-bottom:14px"><div class="field"><label for="costFile">Läs in från slicer-fil (.gcode.3mf eller .gcode)</label>
+<input id="costFile" type="file" accept=".3mf,.gcode,.gco"></div></div><p id="costFileStatus" class="muted" role="status" style="font-size:13px;margin:-6px 0 12px"></p>
+<div class="tablewrap"><table><thead><tr><th>Färg</th><th>Gram</th></tr></thead><tbody id="costRows">{rows}</tbody></table></div>
+<details{' open' if more_open else ''}><summary>Fler färger (5–8)</summary><div class="tablewrap mt"><table><tbody>{more}</tbody></table></div></details>
+<div class="row mt"><div class="field" style="max-width:120px"><label for="ch">Tid, timmar</label><input id="ch" name="h" type="text" inputmode="numeric" maxlength="5" value="{e(form['h'])}"></div>
+<div class="field" style="max-width:120px"><label for="cm">minuter</label><input id="cm" name="m" type="text" inputmode="numeric" maxlength="5" value="{e(form['m'])}"></div>
+<div class="field" style="max-width:240px"><label for="cs">Starttid</label><input id="cs" name="start" type="datetime-local" value="{e(form['start'])}"></div></div>
+<p class="muted" style="font-size:12px;margin:6px 0 0">Lämna starttiden tom för att starta nu.</p></section>
+<section class="card"><h2>Skrivare och el</h2>
+<div class="row"><div class="field"><label for="cp">Skrivare</label><select id="cp" class="cost-printer"><option value="">Välj för att fylla i effekt…</option>{printers}</select></div>
+<div class="field" style="max-width:160px"><label for="cw">Medeleffekt (W)</label><input id="cw" name="w" type="text" inputmode="numeric" maxlength="5" value="{e(form['watts'])}"></div></div>
+<p class="muted" style="font-size:12px;margin:8px 0 14px">Ungefärlig medeleffekt med PLA. Varm bädd (ABS/ASA, kammare) drar mer – mät gärna med en energimätare för exakt värde.</p>
+<div class="row"><div class="field"><label for="csrc">Elpris från</label><select id="csrc" name="src">{sel('src', sources, form['source'])}</select></div>
+<div class="field" style="max-width:150px"><label for="carea">Elområde</label><select id="carea" name="area">{sel('area', [(a, a) for a in energy.AREAS], form['area'])}</select></div>
+<div class="field" style="max-width:220px"><label for="cvat">Spotpris</label><select id="cvat" name="vat">{sel('vat', [('1', 'Lägg på 25 % moms'), ('0', 'Utan moms')], form['vat'])}</select></div></div>
+<div class="row mt"><div class="field" style="max-width:260px"><label for="cextra">Tillägg (kr/kWh)</label><input id="cextra" name="extra" type="text" inputmode="decimal" maxlength="6" value="{e(form['extra'])}" placeholder="t.ex. 0,85"></div>
+<div class="field" style="max-width:200px"><label for="cfixed">Fast pris (kr/kWh)</label><input id="cfixed" name="fixed" type="text" inputmode="decimal" maxlength="6" value="{e(form['fixed'])}"></div></div>
+<p class="muted" style="font-size:12px;margin:8px 0 0">Tillägget läggs på varje kWh: nätavgift (rörlig del) och – för spotpris – energiskatt och elhandlarens påslag.
+Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></section>
+<section class="card"><h2>Filamentpris</h2>
+<div class="row"><div class="field"><label for="cmode">Räkna med</label><select id="cmode" name="mode">{sel('mode', list(costcalc.MODES.items()), form['mode'])}</select></div>
+<div class="field" style="max-width:200px"><label for="ckg">Eget pris (kr/kg)</label><input id="ckg" name="kg" type="text" inputmode="decimal" maxlength="7" value="{e(form['kg'])}" placeholder="t.ex. 229"></div>
+<div class="field" style="max-width:220px"><label for="cwear">Slitage (kr/timme)</label><input id="cwear" name="wear" type="text" inputmode="decimal" maxlength="6" value="{e(form['wear'])}" placeholder="valfritt"></div></div>
+<p class="muted" style="font-size:12px;margin:8px 0 0">Eget pris används för rader utan färg och när katalogen saknar pris. Slitage: t.ex. munstycke, PEI-platta och avskrivning per drifttimme.</p></section>
+<div class="row" style="margin-bottom:22px"><button class="btn" type="submit" name="do" value="rakna">Räkna ut</button>
+<button class="btn ghost" type="submit" name="do" value="spara">Räkna ut och spara som standard</button></div></form>"""
+
+    result = ''
+    if errors:
+        result += ''.join(message('err', e(x)) for x in errors)
+    if res:
+        el = res['el']
+        lines = ''
+        for l in res['lines']:
+            k = l['key']
+            name = f'{e(k.split("|")[0])} · {e(names.get(k, ""))}' if k else 'Annan färg'
+            lines += (f'<tr><td><b>{name}</b><br><span class="muted" style="font-size:12px">{e(l["note"])}</span></td>'
+                      f'<td class="right">{_num(l["grams"], 1)} g</td>'
+                      f'<td class="right">{_num(l["per_kg"], 0) + " kr/kg" if l["per_kg"] is not None else "—"}</td>'
+                      f'<td class="right"><b>{_num(l["cost"]) + " kr" if l["cost"] is not None else "—"}</b></td></tr>')
+        cheap = ''
+        c = res.get('cheapest')
+        if c and res['hours']:
+            saving = el['cost'] - c[1]['cost']
+            if saving > 0.005 and abs((c[0] - res['start']).total_seconds()) > 60:
+                cheap = (f'<div class="msg ok" role="status">💡 Billigast att starta <b>{_day_time(c[0], res["now"])}</b>: elen kostar då '
+                         f'{_num(c[1]["cost"])} kr, {_num(saving)} kr mindre ({_num(100 * saving / el["cost"], 0) if el["cost"] else "–"} %).</div>')
+            else:
+                cheap = '<div class="msg ok" role="status">Starttiden är redan den billigaste bland kända elpriser.</div>'
+        covered = '' if el['covered'] >= 0.999 or not res['source'] else (
+            f'<div class="msg warn" role="status">Elpriser finns bara för {_num(100 * el["covered"], 0)} % av utskriften – '
+            f'resten är uppskattad med medelpriset. Morgondagens priser publiceras runt kl. 13.</div>')
+        end = res['start'] + datetime.timedelta(hours=res['hours'])
+        rng = f' · {_num(el["low"])}–{_num(el["high"])} kr/kWh' if el['low'] is not None else ''
+        result += f"""<section class="card" id="resultat"><h2>Kostnad för utskriften</h2><div class="stats">
+<div class="stat"><span>Totalt</span><strong style="font-size:24px">{_num(res['total'])} kr</strong></div>
+<div class="stat"><span>Filament ({_num(res['grams'], 1)} g)</span><strong>{_num(res['filament'])} kr</strong></div>
+<div class="stat"><span>El ({_num(el['kwh'], 2)} kWh)</span><strong>{_num(el['cost'])} kr</strong></div>
+{f'<div class="stat"><span>Slitage</span><strong>{_num(res["wear"])} kr</strong></div>' if res['wear'] else ''}
+{f'<div class="stat"><span>Per gram</span><strong>{_num(res["per_gram"], 3)} kr</strong></div>' if res['per_gram'] else ''}</div>
+{message('warn', 'Några rader saknar pris och ingår inte i totalen – ange ett eget pris per kg.') if res['missing'] else ''}
+{f'<div class="tablewrap"><table><thead><tr><th>Filament</th><th class="right">Mängd</th><th class="right">Pris</th><th class="right">Kostnad</th></tr></thead><tbody>{lines}</tbody></table></div>' if lines else ''}
+<p class="sub" style="margin:14px 0 0">El: {_hm(res['hours'])} × {_num(res['watts'], 0)} W, {_day_time(res['start'], res['now'])}–{end:%H:%M}{rng}.
+{e(res['source']) or 'Inget elpris.'}</p></section>"""
+        if res['hours'] and intervals:
+            result += f'<section class="card"><h2>Elpris</h2>{cheap}{covered}{_price_chart(intervals, res)}</section>'
+        elif cheap or covered:
+            result += f'<section class="card">{cheap}{covered}</section>'
+
+    tibber = f"""<section class="card" id="tibber"><h2>Tibber</h2>
+<p class="sub">{'Tibber är kopplat. Tokenet visas aldrig igen; ta bort och klistra in ett nytt för att byta.' if has_tibber else
+'Hämta ditt eget elpris från Tibber: logga in på <a href="https://developer.tibber.com" target="_blank" rel="noopener">developer.tibber.com</a>, '
+'välj <i>Your token</i> och klistra in det här. Tokenet ger läsåtkomst till ditt Tibber-konto och sparas bara på ditt konto här.'}</p>
+<form method="post" action="/kostnad/tibber" class="row">{h}
+{'' if has_tibber else '<div class="field" style="max-width:420px"><label for="tt">Tibber-token</label><input id="tt" name="token" type="password" autocomplete="off" maxlength="200"></div><div><button class="btn ghost small" type="submit" name="do" value="spara">Koppla Tibber</button></div>'}
+{'<div><button class="btn danger small" type="submit" name="do" value="ta-bort">Ta bort Tibber-kopplingen</button></div>' if has_tibber else ''}</form></section>"""
+    body = (f'<h1>Kostnadsräknare</h1><p class="lead">Vad kostar en utskrift? Filament efter katalogens priser eller vad du betalat, '
+            f'och el efter timpriset under utskriften – med förslag på billigaste starttid.</p>{message(msg_kind, e(msg))}'
+            f'{result}{form_html}{tibber}')
+    return layout('Kostnadsräknare', body, user, csrf, 'kostnad', scripts=('/assets/cost.js',))
