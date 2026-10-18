@@ -3,21 +3,16 @@ on: { push: { branches: [probe] } }
 permissions: { contents: write }
 jobs:
   probe:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
       - run: |
-          export KATALOG_DATA_DIR=$PWD/data KATALOG_SEED_DIR=$PWD/dist
-          mkdir -p data/www out && echo '{"offers":[]}' > data/www/offers.json
-          python3 -m katalog update --sources 3dverkstan,3dexperten > out/update.log 2>&1 || true
-          python3 - <<'PY' > out/check.txt
-          import json
-          cat={d['type']+'|'+(d['code'] or d['name']):d for d in json.load(open('dist/data.json'))}
-          for o in json.load(open('data/www/offers.json'))['offers']:
-              d=cat[o['key']]
-              print(o['shop'],'|',o['price'],o.get('listPrice'),o['pack'],o['weight'],'|',d['type'],'·',d['name'],'<=',o['title'],'|',o['url'][-50:])
-          PY
-          cp data/www/offers.json out/
+          mkdir out
+          D=$(TZ=Europe/Stockholm date +%Y/%m-%d); T=$(TZ=Europe/Stockholm date -d tomorrow +%Y/%m-%d)
+          curl -sS -m 20 -A 'BambuKatalog/1.0' "https://www.elprisetjustnu.se/api/v1/prices/${D}_SE3.json" -o out/elpris-today.json -w '%{http_code}\n' > out/status.txt 2>&1 || true
+          curl -sS -m 20 -A 'BambuKatalog/1.0' "https://www.elprisetjustnu.se/api/v1/prices/${T}_SE3.json" -o out/elpris-tomorrow.json -w '%{http_code}\n' >> out/status.txt 2>&1 || true
+          curl -sS -m 20 -o /dev/null -w 'tibber %{http_code}\n' -X POST https://api.tibber.com/v1-beta/gql -H 'Content-Type: application/json' -d '{"query":"{viewer{name}}"}' >> out/status.txt 2>&1 || true
+          head -c 600 out/elpris-today.json > out/sample.txt; echo >> out/sample.txt; python3 -c "import json;d=json.load(open('out/elpris-today.json'));print(len(d), d[0], d[-1])" >> out/sample.txt 2>&1 || true
+          echo "::notice title=probe::$(cat out/status.txt | tr '\n' ' ') $(tail -1 out/sample.txt | head -c 500)"
       - run: |
           cd out && git init -q && git checkout -q -b probe-results && git add -A
           git -c user.name=probe -c user.email=probe@local commit -qm probe
