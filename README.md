@@ -8,7 +8,11 @@ Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och an
 - **Budget:** ange ett maxbelopp på inköpslistan. Sidan visar då vad du kan köpa nu och vad som kan vänta – i första hand det som inte är på rea just nu och är dyrast.
 - **Dela och skriv ut:** skapa en länk som visar inköpslistan utan inloggning (skrivskyddad, t.ex. för någon som beställer åt dig), eller skriv ut den med butikslänkarna utskrivna. En ny länk gör den gamla ogiltig, och delningen kan stängas av.
 - **Prishistorik:** prisdialogen visar ett diagram över lägsta varupris per butik och förpackning de senaste 90 dagarna, med tabellvy.
-- **Önskelista:** markera färger du vill testa senare och filtrera fram dem med knappen *Önskelista*. Prisrad och rabatter syns som vanligt.
+- **Önskelista med prisbevakning:** markera färger du vill köpa senare. På sidan *Önskelista* sätter du ett målpris (inklusive frakt) eller en minsta rabatt per färg. Efter varje prisuppdatering kontrolleras bevakningarna; träffar visas överst i katalogen, på korten och på önskelistan, och kan aviseras till mobilen via [ntfy](https://ntfy.sh) (en gång per träff, igen bara om priset sjunker mer).
+- **Bästa tid att köpa:** prisraden, prisdialogen, inköpslistan och önskelistan visar *Lägsta på 90 dagar* när dagens pris är det lägsta för erbjudandet (minst 14 dagars historik), eller *Brukar kosta ca X kr* när priset är minst 8 % över det typiska de senaste 30 dagarna.
+- **Köpt:** knappen *✓ Köpt här* på inköpslistan räknar av butikens rader, markerar färgerna under *Jag har* och sparar köpet i en köphistorik med vad du betalat i år.
+- **Jämför färger:** välj 2–4 färger med *⇄ Jämför* och se färgprov, färgnummer, HEX, lägsta pris, rabatt och vad du har sida vid sida.
+- **Mörkt läge:** följer telefonens eller datorns inställning, på alla sidor.
 - **Billigast och erbjudanden:** sortera på lägsta aktuella pris eller största rabatt, och filtrera fram aktuella erbjudanden med rabatt i procent mot ordinarie pris.
 - **Användare:** varje användare har sina egna ”Jag har detta filament”-markeringar, sparade på kontot och synliga på alla enheter.
 - **Synk från Bambu Lab:** koppla ditt Bambu Lab-konto så markeras spolarna i ditt filamentbibliotek automatiskt som ”Jag har”, med gram kvar per färg. Färger med lite kvar (under 200 g, valbart) märks *Snart slut* och kan läggas i inköpslistan med ett klick.
@@ -158,6 +162,9 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 | `SESSION_IDLE_DAYS` / `SESSION_MAX_DAYS` | `14` / `60` | Utloggning efter inaktivitet eller maxtid |
 | `PASSWORD_MIN_LENGTH` | `10` | Minsta lösenordslängd |
 | `BAMBU_SYNC_HOURS` | `6` | Hur ofta kopplade Bambu Lab-konton synkas (0 = bara manuellt) |
+| `NOTIFY_HOSTS` | `ntfy.sh` | ntfy-servrar som prisbevakningens aviseringar får skickas till (kommaseparerat, tomt = inga aviseringar). Lägg till din egen ntfy-server här. |
+| `NOTIFY_DEFAULT_HOST` | `ntfy.sh` | Server som används när användaren bara anger ett ämnesnamn |
+| `PUBLIC_URL` | – | Katalogens adress utifrån, t.ex. `https://filament.example.se`. Aviseringar länkar då till önskelistan. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | – | Skapar första administratören automatiskt i stället för installationskod |
 
 ## Kommandon i containern

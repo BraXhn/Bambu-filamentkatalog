@@ -81,6 +81,26 @@ CREATE TABLE IF NOT EXISTS prefs (
     value TEXT NOT NULL,
     PRIMARY KEY (user_id, key)
 );
+CREATE TABLE IF NOT EXISTS alerts (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,                  -- katalognyckel på önskelistan
+    target INTEGER,                     -- målpris i kr inkl. frakt, eller NULL
+    min_discount INTEGER,               -- minsta rabatt i procent, eller NULL
+    notified TEXT,                      -- senast aviserade träff ("pris|rabatt"), NULL = ingen träff aviserad
+    PRIMARY KEY (user_id, key)
+);
+CREATE TABLE IF NOT EXISTS purchases (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ts REAL NOT NULL,
+    shop TEXT NOT NULL,
+    key TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    unit_price INTEGER NOT NULL,        -- kr per enhet (efter mängdrabatt), utan frakt
+    pack TEXT,
+    url TEXT
+);
+CREATE INDEX IF NOT EXISTS purchases_user ON purchases(user_id, ts);
 CREATE TABLE IF NOT EXISTS cart_shares (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,    -- sha256 av delningslänkens token (själva token lagras aldrig)
@@ -305,6 +325,43 @@ def set_wish(user_id, items):
         c.execute('INSERT INTO wish(user_id,items,updated) VALUES(?,?,?) '
                   'ON CONFLICT(user_id) DO UPDATE SET items=excluded.items, updated=excluded.updated',
                   (user_id, json.dumps(items, ensure_ascii=False), time.time()))
+
+
+# --- prisbevakning ---
+def get_alerts(user_id):
+    return {r['key']: r for r in conn().execute('SELECT * FROM alerts WHERE user_id=?', (user_id,))}
+
+
+def set_alert(user_id, key, target, min_discount):
+    with tx() as c:
+        if target is None and min_discount is None:
+            c.execute('DELETE FROM alerts WHERE user_id=? AND key=?', (user_id, key))
+        else:
+            c.execute('INSERT INTO alerts(user_id,key,target,min_discount,notified) VALUES(?,?,?,?,NULL) '
+                      'ON CONFLICT(user_id,key) DO UPDATE SET target=excluded.target, min_discount=excluded.min_discount, '
+                      'notified=NULL', (user_id, key, target, min_discount))
+
+
+def set_alert_notified(user_id, key, value):
+    with tx() as c:
+        c.execute('UPDATE alerts SET notified=? WHERE user_id=? AND key=?', (value, user_id, key))
+
+
+def alert_users():
+    return [r['user_id'] for r in conn().execute('SELECT DISTINCT user_id FROM alerts')]
+
+
+# --- köphistorik ---
+def add_purchases(user_id, rows):
+    """rows: [(shop, key, qty, unit_price, pack, url)]"""
+    now = time.time()
+    with tx() as c:
+        c.executemany('INSERT INTO purchases(user_id,ts,shop,key,qty,unit_price,pack,url) VALUES(?,?,?,?,?,?,?,?)',
+                      [(user_id, now) + tuple(r) for r in rows])
+
+
+def get_purchases(user_id, limit=200):
+    return conn().execute('SELECT * FROM purchases WHERE user_id=? ORDER BY ts DESC, id LIMIT ?', (user_id, limit)).fetchall()
 
 
 # --- inställningar per användare ---

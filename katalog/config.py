@@ -107,3 +107,9 @@ JAKE_MAX_PAGES = _int('JAKE_MAX_PAGES', 400)
 USER_AGENT = os.environ.get(
     'PRICE_USER_AGENT',
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 BambuKatalog/1.0')
+
+# Aviseringar för prisbevakningen (ntfy). Bara dessa värdar får anropas; tom lista stänger av aviseringar.
+NOTIFY_HOSTS = {h.strip().lower() for h in os.environ.get('NOTIFY_HOSTS', 'ntfy.sh').split(',') if h.strip()}
+NOTIFY_DEFAULT_HOST = os.environ.get('NOTIFY_DEFAULT_HOST', 'ntfy.sh').strip().lower()
+# Adressen som aviseringar länkar till, t.ex. https://filament.example.se (tomt = ingen länk).
+PUBLIC_URL = os.environ.get('PUBLIC_URL', '').strip().rstrip('/')

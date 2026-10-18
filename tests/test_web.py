@@ -106,6 +106,23 @@ class WebFlow(unittest.TestCase):
         ok(s==200 and c['added']==1 and {i['key']:i['qty'] for i in c['items']}=={'PLA Basic|10101':2,'PLA Basic|10100':1},'lägg flera i listan, befintliga orörda: %s'%b)
         s,h,b=req(a,'/api/history?key=PLA%20Basic%7C10101'); ok(s==200 and json.loads(b)['series']==[],'prishistorik utan data')
         s,h,b=req(a,'/api/history?key=x'); ok(s==400,'prishistorik för okänd färg nekas')
+        # prisbevakning på önskelistan
+        s,h,b=req(a,'/onskelista'); t8=csrf(b); ok(s==200 and 'Bevakning' in b and 'ntfy' in b,'önskelistesidan visas')
+        s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'100000','discount':''}); ok(s==303,'spara målpris')
+        s,h,b=req(a,'/onskelista'); ok('Ditt pris är nått' in b,'träff visas när målpriset nås')
+        s,h,b=req(a,'/api/wish'); ok(json.loads(b)['hits']==['PLA Basic|10101'],'träffen finns i api/wish')
+        s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'abc'}); ok(s==400,'ogiltigt målpris nekas')
+        s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10100','target':'200'}); ok(s==400,'bevakning kräver att färgen är på önskelistan')
+        s,h,b=req(a,'/onskelista/avisering',{'csrf':t8,'target':'https://evil.example/x','do':'spara'}); ok(s==400,'avisering till otillåten värd nekas')
+        s,h,b=req(a,'/onskelista/avisering',{'csrf':t8,'target':'filament-test-123','do':'spara'}); ok(s==200 and 'https://ntfy.sh/filament-test-123' in b,'ntfy-ämne sparas')
+        # köpt här
+        s,h,b=req(a,'/inkopslista'); t9=csrf(b); shop=re.search(r'name="shop" value="([^"]+)"',b)
+        ok(shop is not None,'köpt-knapp per butik')
+        if shop:
+            import html as _h
+            s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':_h.unescape(shop.group(1))}); ok(s==200 and 'Markerat som köpt' in b and 'Köphistorik' in b,'markera som köpt: %s'%s)
+            s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':'Finns inte'}); ok(s==409,'okänd butik ger 409')
+        req(a,'/api/cart',json.dumps({'key':'PLA Basic|10101','qty':1}).encode(),'PUT',J)
         # budget och delning
         s,h,b=req(a,'/inkopslista'); t6=csrf(b); ok(s==200 and 'Dela listan' in b and 'data-print' in b,'inköpslistan har delning och utskrift')
         s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'1','do':'spara'}); ok(s==303,'spara budget')

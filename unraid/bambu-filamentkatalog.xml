@@ -21,6 +21,8 @@
   <Config Name="Tidszon" Target="TZ" Default="Europe/Stockholm" Mode="" Description="Tidszon för schemat." Type="Variable" Display="always" Required="false" Mask="false">Europe/Stockholm</Config>
   <Config Name="Prisuppdatering (klockslag)" Target="PRICE_UPDATE_TIME" Default="01:00" Mode="" Description="När priserna uppdateras varje natt (HH:MM). Tomt = av." Type="Variable" Display="always" Required="false" Mask="false">01:00</Config>
   <Config Name="Bambu-synk (timmar)" Target="BAMBU_SYNC_HOURS" Default="6" Mode="" Description="Hur ofta kopplade Bambu Lab-konton synkas. 0 = bara manuellt." Type="Variable" Display="advanced" Required="false" Mask="false">6</Config>
+  <Config Name="Publik adress" Target="PUBLIC_URL" Default="" Mode="" Description="Katalogens adress utifrån, t.ex. https://filament.example.se. Prisbevakningens aviseringar länkar då till önskelistan." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="ntfy-servrar" Target="NOTIFY_HOSTS" Default="ntfy.sh" Mode="" Description="Servrar som aviseringar får skickas till (kommaseparerat). Tomt stänger av aviseringar." Type="Variable" Display="advanced" Required="false" Mask="false">ntfy.sh</Config>
   <Config Name="Betrodda proxyer" Target="TRUSTED_PROXIES" Default="" Mode="" Description="Bara med omvänd proxy (t.ex. Nginx Proxy Manager): proxyns egen IP-adress som /32, t.ex. 172.18.0.5/32. Loggen föreslår rätt värde." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="Säkra cookies" Target="COOKIE_SECURE" Default="auto" Mode="" Description="Sätt till true när sajten bara nås via https." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
 </Container>
