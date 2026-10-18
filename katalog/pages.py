@@ -36,7 +36,8 @@ def fmt_rel(ts):
 def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=None, scripts=()):
     nav = ''
     if user:
-        items = [('/', 'Katalog', 'katalog'), ('/inkopslista', 'Inköpslista', 'inkop'), ('/konto', 'Mitt konto', 'konto')]
+        items = [('/', 'Katalog', 'katalog'), ('/onskelista', 'Önskelista', 'onske'), ('/inkopslista', 'Inköpslista', 'inkop'),
+                 ('/konto', 'Mitt konto', 'konto')]
         if user['is_admin']:
             items.append(('/admin', 'Administration', 'admin'))
         links = ''.join(f'<a href="{h}"{" aria-current=page" if k == active else ""}>{t}</a>' for h, t, k in items)
@@ -406,7 +407,16 @@ def _when(checked_at):
     return ''
 
 
-def _plan_html(plan, checked_at, title_total='Uppskattat totalt'):
+def timing_badge(o):
+    """'Lägsta på 90 dagar' / 'Brukar kosta ca X kr' från prishistoriken för erbjudandet."""
+    if o.get('low90'):
+        return ' <span class="badge ok" title="Dagens pris är det lägsta för erbjudandet de senaste 90 dagarna">Lägsta på 90 dagar</span>'
+    if o.get('usual'):
+        return (f' <span class="badge warn" title="Typiskt pris de senaste 30 dagarna">Brukar kosta ca {_kr(o["usual"])}</span>')
+    return ''
+
+
+def _plan_html(plan, checked_at, title_total='Uppskattat totalt', csrf=None):
     """Summering, butiker och saknade varor – samma på den egna och den delade inköpslistan."""
     t = plan['totals']
     est = ' (uppskattad frakt ingår)' if t['estimated'] else ''
@@ -426,7 +436,7 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
         for l in sh['lines']:
             o, d = l['offer'], l['item'] or {}
             name = f"{d.get('type', l['key'].split('|')[0])} · {d.get('name', l['key'].split('|')[-1])}"
-            disc = f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else ''
+            disc = (f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else '') + timing_badge(o)
             rows += (f'<tr><td><b>{e(name)}</b>{disc}<br><span class="muted" style="font-size:12px">{e(o.get("title", ""))}</span></td>'
                      f'<td class="hide-sm">{e(o.get("pack", ""))} {o.get("weight") or "?"} g</td>'
                      + (f'<td class="right"><span style="white-space:nowrap">{l["qty"]} × <s class="muted">{_kr(o["price"])}</s></span> '
@@ -441,11 +451,14 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
         fee = f' · köparskydd {_kr(sh["fee"])}' if sh['fee'] else ''
         home = f' <a href="{_safe_href(sh["home"])}" target="_blank" rel="noopener" style="font-size:13px">Till butiken ↗</a>' \
             if sh['home'] and not sh['shop'].startswith('Tradera') else ''
+        bought = (f'<form method="post" action="/inkopslista/kopt" class="no-print" style="margin-top:12px"><input type="hidden" name="csrf" value="{e(csrf)}">'
+                  f'<input type="hidden" name="shop" value="{e(sh["shop"])}"><button class="btn ghost small" type="submit">✓ Köpt här</button>'
+                  f' <span class="muted" style="font-size:12px">Tar bort raderna ur listan, markerar färgerna under Jag har och sparar köpet.</span></form>') if csrf else ''
         shops += f"""<section class="card"><div class="row" style="justify-content:space-between;align-items:baseline">
 <h2>{e(sh['shop'])}{home}</h2><strong style="font-size:18px">{_kr(sh['total'])}</strong></div>
 <p class="sub">Varor {_kr(sh['goods'])}{f" · mängdrabatt −{_kr(sh['discount'])}" if sh.get('discount') else ''} · frakt {ship}{fee}. {e(sh['note'])}</p>{bulk}
 <div class="tablewrap"><table><thead><tr><th>Filament</th><th class="hide-sm">Förpackning</th><th class="right">Antal</th>
-<th class="right">Summa</th><th></th></tr></thead><tbody>{rows}</tbody></table></div></section>"""
+<th class="right">Summa</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>{bought}</section>"""
     missing = ''
     if plan['missing']:
         mrows = ''
@@ -466,12 +479,13 @@ def _print_button():
 
 
 def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg='', budget=None, waiting=(),
-                  full=None, shared=False, share_url=None):
+                  full=None, shared=False, share_url=None, purchases=()):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    history_html = _purchases_html(purchases, names)
     if not items:
         body = f"""<h1>Inköpslista</h1><p class="lead">Lägg till filament med knappen <b>+ Inköpslista</b> på korten i katalogen.
 Här ser du sedan var varje filament är billigast att köpa och vad allt kostar.</p>{message(msg_kind, e(msg))}
-<p><a class="btn" href="/">Till katalogen</a></p>"""
+<p><a class="btn" href="/">Till katalogen</a></p>{history_html}"""
         return layout('Inköpslista', body, user, csrf, 'inkop')
     full = full or plan
     pending = not full.get('complete', True)
@@ -523,9 +537,10 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
 Med en budget visas vad du kan köpa nu och vad som kan vänta.</p>
 <div class="tablewrap"><table><tbody>{edit_rows}</tbody></table></div>{budget_form}
 <form method="post" action="/inkopslista/tom" class="mt">{h}<button class="btn danger small" type="submit">Töm listan</button></form></section>"""
-    plan_html = _plan_html(plan, checked_at, 'Köp nu' if budget and waiting else 'Uppskattat totalt') if plan['totals']['units'] or plan['missing'] else ''
+    plan_html = _plan_html(plan, checked_at, 'Köp nu' if budget and waiting else 'Uppskattat totalt', csrf) \
+        if plan['totals']['units'] or plan['missing'] else ''
     body = (f'<h1>Inköpslista</h1><p class="lead">Var du bör köpa varje filament och vad det kostar totalt.</p>'
-            f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{share_html}')
+            f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{share_html}{history_html}')
     return layout('Inköpslista', body, user, csrf, 'inkop', refresh=8 if pending else None, scripts=('/assets/print.js',))
 
 
@@ -536,3 +551,75 @@ def shared_list(owner, plan, checked_at):
         body = (f'<h1>Inköpslista</h1><p class="lead">Delad av <b>{e(owner)}</b>. Var varje filament är billigast att köpa och vad det kostar. '
                 f'Listan uppdateras när {e(owner)} ändrar den.</p><p class="no-print">{_print_button()}</p>{_plan_html(plan, checked_at)}')
     return layout('Delad inköpslista', body, scripts=('/assets/print.js',))
+
+
+def _purchases_html(purchases, names):
+    if not purchases:
+        return ''
+    year = datetime.datetime.now(TZ).year
+    spent = sum(p['qty'] * p['unit_price'] for p in purchases
+                if datetime.datetime.fromtimestamp(p['ts'], TZ).year == year)
+    rows = ''.join(
+        f'<tr><td>{fmt_time(p["ts"])[:10]}</td><td>{e(p["shop"])}</td>'
+        f'<td><b>{e(p["key"].split("|")[0])} · {e(names.get(p["key"], p["key"].split("|")[-1]))}</b>'
+        f'<span class="muted" style="font-size:12px"> {e(p["pack"] or "")}</span></td>'
+        f'<td class="right">{p["qty"]} × {_kr(p["unit_price"])}</td></tr>' for p in purchases)
+    return (f'<section class="card no-print"><details><summary><b>Köphistorik</b> · {_kr(spent)} på filament i år (utan frakt)</summary>'
+            f'<div class="tablewrap mt"><table><thead><tr><th>Datum</th><th>Butik</th><th>Filament</th><th class="right">Antal</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div></details></section>')
+
+
+def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    lead = ('<p class="lead">Färger du vill köpa senare. Sätt ett målpris (inklusive frakt) eller en minsta rabatt, '
+            'så bevakas priset vid varje prisuppdatering.</p>')
+    if not rows:
+        body = (f'<h1>Önskelista</h1>{lead}{message(msg_kind, e(msg))}<p>Lägg till färger med knappen <b>♡ Önskelista</b> '
+                f'i katalogen.</p><p><a class="btn" href="/">Till katalogen</a></p>')
+        return layout('Önskelista', body, user, csrf, 'onske')
+    rows = sorted(rows, key=lambda r: (not r['hit'], r['key']))
+    trs = ''
+    for r in rows:
+        k, info, a = r['key'], r['info'], r['alert']
+        name = f'{e(k.split("|")[0])} · {e(names.get(k, k.split("|")[-1]))}'
+        if info['best']:
+            o, t = info['best']
+            now = (f'<b>{_kr(t)}</b>{timing_badge(o)}<br><span class="muted" style="font-size:12px">{e(o["shop"].split(" · ")[0])} · '
+                   f'{e(o.get("pack", ""))} · inkl. frakt</span> <a href="{_safe_href(o.get("url"))}" target="_blank" rel="noopener" '
+                   f'style="font-size:12px">Till butiken ↗</a>')
+        else:
+            now = '<span class="muted">Inget jämförbart pris just nu</span>'
+        if info['deal']:
+            now += f'<br><span class="badge bad">−{info["deal"]["discount"]} %</span> <span class="muted" style="font-size:12px">{e(info["deal"]["shop"].split(" · ")[0])}</span>'
+        low = _kr(r['low90']) if r['low90'] else '—'
+        hit = '<span class="badge ok">🔔 Ditt pris är nått</span><br>' if r['hit'] else ''
+        tv = '' if not a or a['target'] is None else str(a['target'])
+        dv = '' if not a or a['min_discount'] is None else str(a['min_discount'])
+        trs += f"""<tr{' class="hit"' if r['hit'] else ''}><td><b>{name}</b></td><td>{now}</td><td class="hide-sm">{low}</td><td>{hit}
+<form method="post" action="/onskelista/bevaka" class="row cart-edit">{h}<input type="hidden" name="key" value="{e(k)}">
+<input name="target" type="text" inputmode="numeric" maxlength="7" value="{e(tv)}" placeholder="Målpris kr" aria-label="Målpris i kronor inklusive frakt" style="width:110px;padding:8px">
+<input name="discount" type="text" inputmode="numeric" maxlength="3" value="{e(dv)}" placeholder="Rabatt %" aria-label="Minsta rabatt i procent" style="width:90px;padding:8px">
+<button class="btn ghost small" type="submit">Spara</button></form>
+<form method="post" action="/onskelista/ta-bort" style="margin-top:6px">{h}<input type="hidden" name="key" value="{e(k)}"><button class="btn danger small" type="submit">Ta bort</button></form></td></tr>"""
+    n_hits = sum(r['hit'] for r in rows)
+    summary = (f'<div class="msg ok" role="status">{n_hits} {"färg" if n_hits == 1 else "färger"} har nått ditt pris just nu.</div>'
+               if n_hits else '')
+    table = (f'<section class="card"><div class="tablewrap"><table><thead><tr><th>Färg</th><th>Lägsta pris nu</th>'
+             f'<th class="hide-sm">Lägst 90 dagar</th><th>Bevakning</th></tr></thead><tbody>{trs}</tbody></table></div>'
+             f'<p class="muted" style="font-size:12px;margin:12px 0 0">Målpriset gäller lägsta jämförbara pris inklusive frakt (som i katalogen). '
+             f'Lämna båda fälten tomma för att sluta bevaka. Priser från {e(_when(checked_at)) or "senaste sökningen"}.</p></section>')
+    if notify_enabled:
+        notify_html = f"""<section class="card"><h2>Avisering till mobilen</h2>
+<p class="sub">Installera appen <b>ntfy</b> (gratis, Android och iPhone), prenumerera på ett eget, svårgissat ämne och skriv in det här.
+Du får en avisering när en bevakning når ditt pris – en gång per träff, och igen bara om priset sjunker mer.
+Ämnet är inte hemligt för ntfy, så välj ett namn som inte avslöjar vem du är.</p>
+<form method="post" action="/onskelista/avisering" class="row">{h}
+<div class="field" style="max-width:360px"><label for="nt">ntfy-ämne eller adress</label>
+<input id="nt" name="target" type="text" maxlength="200" value="{e(notify or '')}" placeholder="t.ex. filament-a8k2m" autocomplete="off" spellcheck="false"></div>
+<div><button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
+<button class="btn ghost small" type="submit" name="do" value="testa">Spara och skicka test</button>
+{'<button class="btn danger small" type="submit" name="do" value="ta-bort">Stäng av</button>' if notify else ''}</div></form></section>"""
+    else:
+        notify_html = ''
+    body = f'<h1>Önskelista</h1>{lead}{message(msg_kind, e(msg))}{summary}{table}{notify_html}'
+    return layout('Önskelista', body, user, csrf, 'onske')

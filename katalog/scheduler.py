@@ -1,5 +1,6 @@
 """Schemalagd prisuppdatering (standard 01:00 Europe/Stockholm) och manuell start från admin."""
 import datetime
+import json
 import io
 import threading
 import time
@@ -103,8 +104,12 @@ def _loop():
         if kind:
             try:
                 if run_now(kind) in ('ok', 'partial'):
-                    from . import cart
+                    from . import alerts, cart
                     cart.refresh_all()   # nya priser: räkna om inköpslistorna i bakgrunden
+                    offers, _ = cart.load_offers()
+                    catalog = json.loads(config.CATALOG_PATH.read_text(encoding='utf-8'))
+                    names = {d['type'] + '|' + (d['code'] or d['name']): d['name'] for d in catalog}
+                    alerts.notify_all(offers, names, lambda m: print(m, flush=True))
             except Exception as ex:  # noqa: BLE001
                 print(f'[priser] fel: {ex}', flush=True)
         # Bambu Lab-synk för kopplade konton.

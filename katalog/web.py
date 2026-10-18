@@ -13,7 +13,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import bambu, cart, config, db, history, pages, scheduler, security
+from . import alerts, bambu, cart, config, db, history, pages, scheduler, security
 from .static import store
 
 COOKIE = 'katalog_sid'
@@ -52,7 +52,7 @@ CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-
        "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
        "frame-ancestors 'none'")
 PUBLIC = {'/healthz', '/robots.txt', '/favicon.ico'}
-APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista|delad)(/|$)')
+APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista|delad|onskelista)(/|$)')
 STARTUP_ERROR = None   # sätts om datamappen inte går att använda; visas då på alla sidor
 
 
@@ -469,6 +469,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.get_account()
             if path == '/inkopslista':
                 return self.get_cart()
+            if path == '/onskelista':
+                return self.get_wish()
             if path == '/admin':
                 return self.get_admin()
             m = re.fullmatch(r'/admin/anvandare/(\d+)/ta-bort', path)
@@ -547,6 +549,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.bambu_post(path)
             if path.startswith('/inkopslista/'):
                 return self.cart_post(path)
+            if path.startswith('/onskelista/'):
+                return self.wish_post(path)
             if path.startswith('/admin'):
                 return self.admin_post(path)
             self.not_found()
@@ -940,17 +944,99 @@ class Handler(BaseHTTPRequestHandler):
         return self.get_account(bkind='ok' if ok else 'err', bmsg=('Kontot är kopplat. ' if ok else 'Kontot är kopplat, men ') + msg)
 
     # ---------- inköpslista ----------
-    def get_cart(self, kind='', msg='', code=200, share_url=None):
-        u = self.user()
-        items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(u['id'])]
+    def _cart_plans(self, uid):
+        items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(uid)]
         offers, checked = cart.load_offers()
         catalog = _catalog()
-        plan = cart.cached_plan(u['id'], items, offers, catalog, checked) if items else cart.plan([], offers, catalog)
-        budget = _int(db.get_pref(u['id'], 'budget'), None)
+        plan = cart.cached_plan(uid, items, offers, catalog, checked) if items else cart.plan([], offers, catalog)
+        budget = _int(db.get_pref(uid, 'budget'), None)
         buy, wait = (cart.within_budget(items, offers, catalog, budget, base=plan) if budget and items else (plan, []))
+        return items, plan, buy, wait, budget, checked
+
+    def get_cart(self, kind='', msg='', code=200, share_url=None):
+        u = self.user()
+        items, plan, buy, wait, budget, checked = self._cart_plans(u['id'])
         self.send(code, pages.shopping_list(u, self.session()['csrf'], buy, items, _catalog_names(), checked, kind, msg,
                                             budget=budget, waiting=wait, full=plan, shared=bool(db.get_share(u['id'])),
-                                            share_url=share_url))
+                                            share_url=share_url, purchases=db.get_purchases(u['id'], 60)))
+
+    def _mark_bought(self, uid, shop):
+        """Butikens rader i den visade planen: räkna av från listan, lägg till under Jag har och spara i köphistoriken."""
+        items, plan, buy, *_ = self._cart_plans(uid)
+        sh = next((x for x in buy['shops'] if x['shop'] == shop), None)
+        if not sh:
+            return self.get_cart('err', 'Planen har ändrats sedan sidan visades. Kontrollera listan och försök igen.', 409)
+        rows, bought = [], {}
+        for l in sh['lines']:
+            o = l['offer']
+            rows.append((shop, l['key'], l['qty'], round(l.get('bulkPrice') or o['price']), o.get('pack'), o.get('url')))
+            bought[l['key']] = bought.get(l['key'], 0) + l['qty']
+        for key, qty, pack in items:
+            if key in bought:
+                db.set_cart_item(uid, key, max(0, qty - bought[key]), pack)
+        owned = set(db.get_owned(uid) or [])
+        db.set_owned(uid, sorted(owned | set(bought)))
+        db.add_purchases(uid, rows)
+        n = sum(bought.values())
+        return self.get_cart('ok', f'Markerat som köpt hos {shop}: {n} {"spole" if n == 1 else "spolar"}. '
+                                   f'Färgerna är markerade under Jag har och borttagna ur listan.')
+
+    def get_wish(self, kind='', msg='', code=200):
+        u = self.user()
+        offers, checked = cart.load_offers()
+        keys = db.get_wish(u['id'])
+        al = db.get_alerts(u['id'])
+        rows = []
+        for k in keys:
+            info = alerts.best(k, offers)
+            low = [p[1] for s in history.series(k, offers) for p in s['points']]
+            rows.append({'key': k, 'info': info, 'alert': al.get(k), 'hit': bool(al.get(k)) and alerts.is_hit(al[k], info),
+                         'low90': min(low) if low else None})
+        self.send(code, pages.wish_page(u, self.session()['csrf'], rows, _catalog_names(), db.get_pref(u['id'], 'notify'),
+                                        bool(config.NOTIFY_HOSTS), checked, kind, msg))
+
+    def wish_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        if path == '/onskelista/bevaka':
+            key = f.get('key', '')
+            if key not in db.get_wish(uid):
+                return self.get_wish('err', 'Färgen finns inte på önskelistan.', 400)
+
+            def num(name, hi):
+                raw = re.sub(r'[\s%kr]', '', f.get(name, ''))
+                if not raw:
+                    return None
+                if not raw.isdigit() or not 0 < int(raw) <= hi:
+                    raise ValueError
+                return int(raw)
+            try:
+                target, disc = num('target', 100_000), num('discount', 90)
+            except ValueError:
+                return self.get_wish('err', 'Ange målpriset i hela kronor och rabatten i procent (1–90).', 400)
+            db.set_alert(uid, key, target, disc)
+            return self.redirect('/onskelista')
+        if path == '/onskelista/ta-bort':
+            key = f.get('key', '')
+            db.set_wish(uid, [k for k in db.get_wish(uid) if k != key])
+            db.set_alert(uid, key, None, None)
+            return self.redirect('/onskelista')
+        if path == '/onskelista/avisering':
+            if f.get('do') == 'ta-bort' or not f.get('target', '').strip():
+                db.set_pref(uid, 'notify', None)
+                return self.get_wish('ok', 'Aviseringar är avstängda. Träffar visas fortfarande här och i katalogen.')
+            target = alerts.parse_target(f.get('target', ''))
+            if not target:
+                return self.get_wish('err', 'Ange ett ntfy-ämne (bokstäver, siffror, - och _) eller en adress hos en tillåten '
+                                            f'ntfy-server ({", ".join(sorted(config.NOTIFY_HOSTS)) or "ingen"}).', 400)
+            db.set_pref(uid, 'notify', target)
+            if f.get('do') == 'testa':
+                err = alerts.send(target, 'Test från filamentkatalogen', 'Aviseringar för din önskelista fungerar.')
+                return self.get_wish('err' if err else 'ok', err or 'Testaviseringen är skickad. Syns den inte, kontrollera ämnet i ntfy-appen.')
+            return self.get_wish('ok', 'Aviseringar sparade. Du får en avisering när en bevakning når ditt pris.')
+        return self.not_found()
 
     def get_shared(self, token):
         uid = db.share_user(security.token_hash(token))
@@ -988,6 +1074,8 @@ class Handler(BaseHTTPRequestHandler):
             db.set_share(uid, security.token_hash(token))
             return self.get_cart('ok', 'Delningslänken är skapad. Kopiera den nu – den visas bara en gång. '
                                        'En tidigare länk slutar gälla.', share_url=self._share_url(token))
+        if path == '/inkopslista/kopt':
+            return self._mark_bought(uid, f.get('shop', ''))
         if path == '/inkopslista/sluta-dela':
             db.delete_share(uid)
             return self.get_cart('ok', 'Inköpslistan delas inte längre. Den gamla länken fungerar inte.')
@@ -1100,7 +1188,8 @@ class Handler(BaseHTTPRequestHandler):
         u = self.user()
         if not u or u['must_change_pw']:
             return self.json(401, {'error': 'inte inloggad'})
-        self.json(200, {'items': db.get_wish(u['id'])})
+        offers, _ = cart.load_offers()
+        self.json(200, {'items': db.get_wish(u['id']), 'hits': sorted(alerts.hits(u['id'], offers))})
 
     def api_wish_put(self):
         u, data = self._json_body()
@@ -1111,6 +1200,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(items, list) or len(items) > 2000 or not all(isinstance(x, str) and x in names for x in items):
             return self.json(400, {'error': 'ogiltig data'})
         items = sorted(set(items))
+        for k in set(db.get_wish(u['id'])) - set(items):
+            db.set_alert(u['id'], k, None, None)      # bevakningen följer med när färgen tas bort
         db.set_wish(u['id'], items)
         self.json(200, {'items': items})
 
