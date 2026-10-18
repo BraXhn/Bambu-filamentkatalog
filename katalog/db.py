@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS purchases (
     qty INTEGER NOT NULL,
     unit_price INTEGER NOT NULL,        -- kr per enhet (efter mängdrabatt), utan frakt
     pack TEXT,
-    url TEXT
+    url TEXT,
+    weight INTEGER                      -- gram per enhet (för kr/kg i kostnadsräknaren)
 );
 CREATE INDEX IF NOT EXISTS purchases_user ON purchases(user_id, ts);
 CREATE TABLE IF NOT EXISTS cart_shares (
@@ -165,11 +166,19 @@ def init():
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     with _lock:
         conn().executescript(SCHEMA)
+        _migrate(conn())
         try:  # databasen innehåller inloggningsnycklar: bara containeranvändaren får läsa den
             import os
             os.chmod(config.DB_PATH, 0o600)
         except OSError:
             pass
+
+
+def _migrate(c):
+    """Kolumner som tillkommit efter att tabellen skapats (CREATE TABLE IF NOT EXISTS ändrar inte befintliga)."""
+    cols = {r[1] for r in c.execute('PRAGMA table_info(purchases)')}
+    if 'weight' not in cols:
+        c.execute('ALTER TABLE purchases ADD COLUMN weight INTEGER')
 
 
 def recover_runs():
@@ -353,11 +362,19 @@ def alert_users():
 
 # --- köphistorik ---
 def add_purchases(user_id, rows):
-    """rows: [(shop, key, qty, unit_price, pack, url)]"""
+    """rows: [(shop, key, qty, unit_price, pack, url, weight)]"""
     now = time.time()
     with tx() as c:
-        c.executemany('INSERT INTO purchases(user_id,ts,shop,key,qty,unit_price,pack,url) VALUES(?,?,?,?,?,?,?,?)',
+        c.executemany('INSERT INTO purchases(user_id,ts,shop,key,qty,unit_price,pack,url,weight) VALUES(?,?,?,?,?,?,?,?,?)',
                       [(user_id, now) + tuple(r) for r in rows])
+
+
+def last_paid(user_id):
+    """{katalognyckel: (kr per enhet, gram per enhet)} från det senaste köpet av varje färg."""
+    out = {}
+    for r in conn().execute('SELECT key, unit_price, weight FROM purchases WHERE user_id=? ORDER BY ts', (user_id,)):
+        out[r['key']] = (r['unit_price'], r['weight'] or 1000)
+    return out
 
 
 def get_purchases(user_id, limit=200):

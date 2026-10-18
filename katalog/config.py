@@ -113,3 +113,7 @@ NOTIFY_HOSTS = {h.strip().lower() for h in os.environ.get('NOTIFY_HOSTS', 'ntfy.
 NOTIFY_DEFAULT_HOST = os.environ.get('NOTIFY_DEFAULT_HOST', 'ntfy.sh').strip().lower()
 # Adressen som aviseringar länkar till, t.ex. https://filament.example.se (tomt = ingen länk).
 PUBLIC_URL = os.environ.get('PUBLIC_URL', '').strip().rstrip('/')
+
+# Elpris för kostnadsräknaren. Adresserna kan bara ändras för tester (låtsasservrar på 127.0.0.1).
+ELPRIS_BASE = os.environ.get('KATALOG_ELPRIS_TEST_BASE', 'https://www.elprisetjustnu.se').rstrip('/')
+TIBBER_URL = os.environ.get('KATALOG_TIBBER_TEST_URL', 'https://api.tibber.com/v1-beta/gql')

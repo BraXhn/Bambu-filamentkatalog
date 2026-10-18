@@ -123,6 +123,18 @@ class WebFlow(unittest.TestCase):
             s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':_h.unescape(shop.group(1))}); ok(s==200 and 'Markerat som köpt' in b and 'Köphistorik' in b,'markera som köpt: %s'%s)
             s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':'Finns inte'}); ok(s==409,'okänd butik ger 409')
         req(a,'/api/cart',json.dumps({'key':'PLA Basic|10101','qty':1}).encode(),'PUT',J)
+        # kostnadsräknare (fast elpris: inga nätanrop)
+        s,h,b=req(a,'/kostnad'); t10=csrf(b); ok(s==200 and 'Kostnadsräknare' in b and 'cost.js' in b,'kostnadsräknaren visas')
+        f={'csrf':t10,'k1':'PLA Basic|10101','g1':'50','k2':'','g2':'10','h':'2','m':'30','w':'100','src':'fast','fixed':'2','extra':'0,6',
+           'mode':'eget','kg':'200','wear':'','area':'SE3','vat':'1','do':'rakna'}
+        s,h,b=req(a,'/kostnad/rakna',f); ok(s==200 and 'Kostnad för utskriften' in b and '12,65 kr' in b,'kostnad räknas ut (12 kr filament + 0,65 kr el)')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='spara',w='150')); ok(s==200 and 'sparade som standard' in b,'spara standardvärden')
+        s,h,b=req(a,'/kostnad'); ok('value="150"' in b,'sparad effekt används som standard')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,g1='abc')); ok('måste vara ett tal' in b,'ogiltigt tal visas som fel')
+        s,h,b=req(a,'/kostnad/rakna',{**f,'csrf':'fel'}); ok(s==403,'kostnadsberäkning kräver csrf')
+        s,h,b=req(a,'/kostnad/tibber',{'csrf':t10,'token':'kort','do':'spara'}); ok(s==400,'ogiltigt Tibber-token nekas')
+        os.makedirs(D+'/state',exist_ok=True); open(D+'/state/bambu_color_codes.json','w').write('[]')
+        s,h,b=req(a,'/api/match',json.dumps({'items':[{'id':'GFA00','type':'PLA Basic','color':'#000000'}]}).encode(),'PUT',J); ok(s==200 and 'keys' in json.loads(b),'matcha slicerns filament: %s'%b)
         # budget och delning
         s,h,b=req(a,'/inkopslista'); t6=csrf(b); ok(s==200 and 'Dela listan' in b and 'data-print' in b,'inköpslistan har delning och utskrift')
         s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'1','do':'spara'}); ok(s==303,'spara budget')

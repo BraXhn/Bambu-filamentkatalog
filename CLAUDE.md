@@ -17,7 +17,7 @@ commit-meddelanden och svar till användaren är på svenska.
 - `dist/` – katalogdata (`data.json`), webbapp (`index.html`, `app.js`, `prices-ui.js`) och seed `offers.json`.
 - `katalog/db.py` – SQLite (DELETE-journal, inte WAL: Unraids FUSE klarar inte WAL). Tabeller:
   users, sessions (bara token-hash), owned, wish, alerts (målpris/rabatt per önskad färg), cart, purchases,
-  prefs (budget, low_grams, notify), cart_shares (bara token-hash), runs, settings, bambu_links, bambu_pending.
+  prefs (budget, low_grams, notify, cost_*, tibber_token), cart_shares (bara token-hash), runs, settings, bambu_links, bambu_pending.
 - `katalog/security.py` – scrypt, rate limiters. `katalog/config.py` – alla miljövariabler med säkra standardvärden.
 - `katalog/bambu.py` – inofficiellt Bambu-moln-API (inloggning med e-postkod/TFA, filamentbibliotek), matchning
   mot katalogen. Testas mot `tests/fake_bambu.py` via `KATALOG_BAMBU_TEST_BASE`.
@@ -31,6 +31,11 @@ commit-meddelanden och svar till användaren är på svenska.
 - `katalog/alerts.py` – prisbevakning: samma "lägsta pris"-regel som katalogens JS (`best`), träffar och
   ntfy-aviseringar efter varje prisuppdatering. Bara https till värdar i `config.NOTIFY_HOSTS`, inga omdirigeringar.
 - `apply_history()` sätter även `low90` (lägsta på 90 dagar) och `usual` (typiskt pris) per erbjudande.
+- `katalog/energy.py` – elpris: elprisetjustnu.se (spot per kvart, utan moms, 404 = ej publicerat) och Tibber GraphQL
+  (`total` = energi + skatt + moms, utan nätavgift). Cachas i minnet; testadresser (`KATALOG_ELPRIS_TEST_BASE`,
+  `KATALOG_TIBBER_TEST_URL`) godtas bara mot 127.0.0.1. `window_cost()`/`cheapest_start()` räknar över intervallen.
+- `katalog/costcalc.py` + `/kostnad` – kostnadsräknaren; `assets/cost.js` läser .gcode.3mf/.gcode i webbläsaren och
+  kopplar färger via `/api/match` (samma `bambu.SpoolMatcher` som Bambu-synken). Tibber-token i `prefs` (tibber_token).
 - `katalog/history.py` – prishistorik per färg för diagrammet (`/api/history`), läser `state/price_history.json`.
 - `/delad/<token>` visar en inköpslista utan inloggning (skrivskyddad). Serverrenderade sidor får bara skript
   från `/assets/` (t.ex. `print.js`), aldrig inline.
