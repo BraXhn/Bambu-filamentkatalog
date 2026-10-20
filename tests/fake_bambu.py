@@ -14,6 +14,13 @@ SPOOLS = [
     {'id': 4, 'filamentVendor': 'Bambu Lab', 'filamentName': 'PLA Matte', 'filamentId': 'GFA01', 'colors': ['#FFFFFFFF'], 'netWeight': 0, 'totalNetWeight': 1000, 'status': 1},
     {'id': 5, 'filamentVendor': 'Polymaker', 'filamentName': 'PolyTerra PLA', 'colors': ['#<script>'], 'netWeight': 500, 'totalNetWeight': 1000, 'status': 0},
 ]
+TASKS = [
+    {'id': 9001, 'designTitle': 'Benchy', 'title': 'Benchy', 'status': 2, 'startTime': '2026-10-01T18:00:00Z', 'endTime': '2026-10-01T19:30:00Z',
+     'costTime': 5400, 'weight': 14.5, 'deviceModel': 'A1', 'deviceName': 'Min A1',
+     'amsDetailMapping': [{'ams': 0, 'sourceColor': '000000FF', 'targetColor': '000000FF', 'filamentId': 'GFA00', 'filamentType': 'PLA', 'weight': 12.0},
+                          {'ams': 1, 'sourceColor': 'FFFFFFFF', 'targetColor': 'FFFFFFFF', 'filamentId': 'GFL99', 'filamentType': 'PLA', 'weight': 2.5}]},
+    {'id': 9002, 'title': 'Misslyckad', 'status': 3, 'startTime': '2026-10-02T10:00:00Z', 'costTime': 600, 'weight': 3.0, 'deviceModel': 'A1'},
+]
 COLORS = {'data': [
     {'fila_color_code': '10101', 'fila_id': 'GFA00', 'fila_type': 'PLA Basic', 'fila_color': ['#000000FF']},
     {'fila_color_code': '33102', 'fila_id': 'GFG02', 'fila_type': 'PETG HF', 'fila_color': ['#000000FF']},
@@ -31,6 +38,9 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/colors.json': return self.out(200, COLORS)
         if self.path == '/api/csrf': return self.out(204, None, [('Set-Cookie', 'bbl_csrf_token=abc; Path=/')])
+        if self.path.startswith('/v1/user-service/my/tasks'):
+            if self.headers.get('Authorization') != 'Bearer ' + TOKEN: return self.out(401)
+            return self.out(200, {'total': len(TASKS), 'hits': TASKS})
         if self.path.startswith('/v1/design-user-service/my/filament/v2'):
             if self.headers.get('Authorization') != 'Bearer ' + TOKEN: return self.out(401)
             return self.out(200, {'total': len(SPOOLS), 'hits': SPOOLS})

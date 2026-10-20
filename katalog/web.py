@@ -12,9 +12,10 @@ import socket
 import threading
 import time
 import urllib.parse
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import alerts, bambu, cart, config, costcalc, db, energy, history, pages, scheduler, security
+from . import alerts, backup, bambu, cart, config, costcalc, db, energy, history, pages, printlog, scheduler, security
 from .static import store
 
 COOKIE = 'katalog_sid'
@@ -41,6 +42,7 @@ def _dummy(pw):
 
 
 bambu_attempts = security.RateLimiter(6, 15 * 60)
+print_fetches = security.RateLimiter(6, 15 * 60)       # "Hämta utskrifter" per användare
 login_posts = security.RateLimiter(10, 60)          # högst 10 inloggningsförsök per minut och IP
 MAX_CONNECTIONS = 128                                # samtidiga anslutningar totalt (en tråd var)
 MAX_PER_IP = 16                                      # samtidiga anslutningar per klient (ej betrodd proxy)
@@ -53,7 +55,7 @@ CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-
        "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
        "frame-ancestors 'none'")
 PUBLIC = {'/healthz', '/robots.txt', '/favicon.ico'}
-APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista|delad|onskelista|kostnad)(/|$)')
+APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista|delad|onskelista|kostnad|utskrifter|kvitto)(/|$)')
 STARTUP_ERROR = None   # sätts om datamappen inte går att använda; visas då på alla sidor
 
 
@@ -322,7 +324,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'same-origin')
-        self.send_header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+        self.send_header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')   # kameran: skanna etiketter
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
         self.send_header('X-Robots-Tag', 'noindex, nofollow')
@@ -455,6 +457,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_wish_get()
             if path == '/api/history':
                 return self.api_history()
+            if path == '/api/skus':
+                return self.api_skus()
+            if path == '/api/tibber/live':
+                return self.api_tibber_live()
             m = re.fullmatch(r'/delad/([A-Za-z0-9_-]{20,80})', path)
             if m:
                 return self.get_shared(m.group(1))
@@ -474,6 +480,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.get_wish()
             if path == '/kostnad':
                 return self.get_cost()
+            if path == '/utskrifter':
+                return self.get_prints()
+            m = re.fullmatch(r'/kvitto/(\d+)', path)
+            if m:
+                return self.get_receipt(int(m.group(1)))
+            m = re.fullmatch(r'/admin/sakerhetskopior/([\w.-]+)', path)
+            if m:
+                return self.get_backup_file(m.group(1))
             if path == '/admin':
                 return self.get_admin()
             m = re.fullmatch(r'/admin/anvandare/(\d+)/ta-bort', path)
@@ -556,6 +570,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.wish_post(path)
             if path.startswith('/kostnad/'):
                 return self.cost_post(path)
+            if path.startswith('/utskrifter/'):
+                return self.prints_post(path)
+            if path.startswith('/kvitto/'):
+                return self.receipt_post(path)
             if path.startswith('/admin'):
                 return self.admin_post(path)
             self.not_found()
@@ -584,6 +602,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_prefs_put()
             if p == '/api/match':
                 return self.api_match()
+            m = re.fullmatch(r'/api/receipt/(\d+)', p)
+            if m:
+                return self.api_receipt_put(int(m.group(1)))
             self.not_found()
         except _TooLarge:
             self.close_connection = True
@@ -788,7 +809,7 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, ValueError):
             offers_info = '—'
         self.send(code, pages.admin(u, self.session()['csrf'], db.list_users(), runs, scheduler.next_run_text(),
-                                    offers_info, kind, msg, secret))
+                                    offers_info, kind, msg, secret, backups=backup.list_backups()))
 
     def get_admin(self):
         if not self.user()['is_admin']:
@@ -798,20 +819,136 @@ class Handler(BaseHTTPRequestHandler):
         kind, msg = msgs.get(q.get('m', [''])[0], ('', ''))
         self._admin_page(kind, msg)
 
+    def get_backup_file(self, name):
+        if not self.user()['is_admin']:
+            return self.forbidden()
+        p = backup.path_of(name)
+        if not p:
+            return self.not_found()
+        self.send(200, p.read_bytes(), 'application/zip', headers=[('Content-Disposition', f'attachment; filename="{name}"')])
+
+    # ---------- utskriftslogg ----------
+    def get_prints(self, kind='', msg='', code=200):
+        u = self.user()
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if not kind and q.get('m') == ['sparad']:
+            kind, msg = 'ok', 'Utskriften är sparad i loggen.'
+        link = db.get_bambu(u['id'])
+        bambu_left = {k: v.get('grams') for k, v in (_bambu_summary(u['id']) or {}).get('items', {}).items()} if link else {}
+        self.send(code, pages.prints_page(u, self.session()['csrf'], db.get_prints(u['id'], limit=300), printlog.stats(u['id']),
+                                          printlog.forecast(u['id'], bambu_left), _catalog_names(), bool(link and link['token']),
+                                          kind, msg))
+
+    def prints_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        if path == '/utskrifter/hamta':
+            if print_fetches.blocked(uid):
+                return self.get_prints('err', 'För många försök. Vänta en stund och försök igen.', 429)
+            print_fetches.hit(uid)
+            try:
+                n = printlog.import_bambu(uid)
+            except bambu.BambuError as ex:
+                return self.get_prints('err', str(ex), 502)
+            return self.get_prints('ok', f'{n} nya utskrifter hämtade från Bambu Lab.' if n else 'Inga nya avslutade utskrifter hos Bambu Lab.')
+        m = re.fullmatch(r'/utskrifter/(\d+)/ta-bort', path)
+        if m:
+            db.delete_print(uid, int(m.group(1)))
+            return self.redirect('/utskrifter')
+        return self.not_found()
+
+    # ---------- kvitton ----------
+    RECEIPT_TYPES = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf'}
+    RECEIPT_MAX = 3 * 1024 * 1024
+
+    def api_receipt_put(self, purchase_id):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        if not self.check_csrf():
+            return self.json(403, {'error': 'ogiltig token'})
+        ctype = (self.headers.get('Content-Type') or '').split(';')[0].strip().lower()
+        ext = self.RECEIPT_TYPES.get(ctype)
+        if not ext:
+            return self.json(415, {'error': 'Bara JPEG, PNG, WebP eller PDF.'})
+        if getattr(self, '_cl', 0) > self.RECEIPT_MAX:
+            self.close_connection = True
+            return self.json(413, {'error': 'Filen är för stor (högst 3 MB).'})
+        rows = db.purchase_batch(u['id'], purchase_id)
+        if not rows:
+            return self.json(404, {'error': 'köpet finns inte'})
+        data = self.read_body(self.RECEIPT_MAX)
+        magic = {'jpg': (b'\xff\xd8\xff',), 'png': (b'\x89PNG',), 'webp': (b'RIFF',), 'pdf': (b'%PDF',)}[ext]
+        if not data.startswith(magic):
+            return self.json(415, {'error': 'Filen stämmer inte med sin typ.'})
+        folder = config.RECEIPT_DIR / str(u['id'])
+        folder.mkdir(parents=True, exist_ok=True)
+        name = f'{rows[0]["id"]}.{ext}'
+        for old in folder.glob(f'{rows[0]["id"]}.*'):
+            old.unlink()
+        tmp = folder / ('.tmp-' + name)
+        tmp.write_bytes(data)
+        os.replace(tmp, folder / name)
+        db.set_receipt(u['id'], purchase_id, name)
+        self.json(200, {'ok': True, 'url': f'/kvitto/{rows[0]["id"]}'})
+
+    def get_receipt(self, purchase_id):
+        u = self.user()
+        rows = db.purchase_batch(u['id'], purchase_id)
+        name = rows[0]['receipt'] if rows else None
+        path = config.RECEIPT_DIR / str(u['id']) / name if name and re.fullmatch(r'\d+\.(jpg|png|webp|pdf)', name) else None
+        if not path or not path.is_file():
+            return self.not_found()
+        ctype = {v: k for k, v in self.RECEIPT_TYPES.items()}[name.rsplit('.', 1)[1]]
+        self.send(200, path.read_bytes(), ctype, cache='private, no-store',
+                  headers=[('Content-Disposition', f'inline; filename="kvitto-{name}"')])
+
+    def receipt_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        m = re.fullmatch(r'/kvitto/(\d+)/ta-bort', path)
+        if not m:
+            return self.not_found()
+        rows = db.purchase_batch(uid, int(m.group(1)))
+        if rows and rows[0]['receipt']:
+            try:
+                (config.RECEIPT_DIR / str(uid) / rows[0]['receipt']).unlink()
+            except OSError:
+                pass
+            db.set_receipt(uid, int(m.group(1)), None)
+        return self.redirect('/inkopslista#kophistorik')
+
+    def api_skus(self):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        try:
+            skus = json.loads((Path(__file__).parent / 'prices' / 'bambu_skus.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            skus = {}
+        self.json(200, {'skus': skus})
+
+    def api_tibber_live(self):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        token = db.get_pref(u['id'], 'tibber_token')
+        if not token:
+            return self.json(404, {'error': 'Tibber är inte kopplat'})
+        try:
+            live = energy.tibber_live(token)
+        except energy.EnergyError as ex:
+            return self.json(502, {'error': str(ex)})
+        self.json(200, {'live': live})
+
     def admin_backup(self):
         import io
-        import tempfile
-        import zipfile
         buf = io.BytesIO()
-        with tempfile.TemporaryDirectory() as tmp:
-            dbfile = os.path.join(tmp, 'katalog.db')
-            db.backup_to(dbfile)
-            with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
-                z.write(dbfile, 'katalog.db')
-                for sub in (config.STATE_DIR, config.WWW_DIR):
-                    if sub.is_dir():
-                        for fp in sorted(sub.glob('*.json')):
-                            z.write(fp, f'{sub.name}/{fp.name}')
+        backup.make_zip(buf)
         name = time.strftime('bambu-filamentkatalog-%Y%m%d-%H%M.zip')
         print(f'[admin] {self.user()["username"]} laddade ner en säkerhetskopia', flush=True)
         self.send(200, buf.getvalue(), 'application/zip',
@@ -838,6 +975,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.admin_create(f)
         if path == '/admin/sakerhetskopia':
             return self.admin_backup()
+        if path == '/admin/sakerhetskopior/ny':
+            name = backup.create()
+            print(f'[admin] {u["username"]} skapade säkerhetskopian {name}', flush=True)
+            return self._admin_page('ok', f'Säkerhetskopian {name} är sparad i /data/backups.')
+        m = re.fullmatch(r'/admin/sakerhetskopior/([\w.-]+)/aterstall', path)
+        if m:
+            if f.get('confirm', '').strip().upper() != 'ÅTERSTÄLL':
+                return self._admin_page('err', 'Skriv ÅTERSTÄLL i rutan för att bekräfta återställningen.', code=400)
+            if not backup.path_of(m.group(1)):
+                return self._admin_page('err', 'Säkerhetskopian finns inte.', code=404)
+            backup.create()   # nuvarande läge sparas först, så att återställningen kan ångras
+            backup.restore(m.group(1))
+            cart._cache.clear()
+            print(f'[admin] {u["username"]} återställde säkerhetskopian {m.group(1)}', flush=True)
+            return self.redirect('/login')
         m = re.fullmatch(r'/admin/anvandare/(\d+)/(losenord|roll|las-upp|logga-ut|ta-bort)', path)
         if not m:
             return self.not_found()
@@ -1067,8 +1219,24 @@ class Handler(BaseHTTPRequestHandler):
         u = self.user()
         if q is None:
             q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
-            if q.get('m') == ['sparat']:
-                kind, msg = 'ok', 'Inställningarna är sparade som standard.'
+        form, result, intervals, errors, st = self._cost_compute(u, q)
+        has_tibber = bool(db.get_pref(u['id'], 'tibber_token'))
+        live = None
+        if st['source'] != 'fast':
+            if not intervals:   # inget uträknat än: hämta elpriset ändå för "Just nu"
+                try:
+                    extra = float((st['extra'] or '0').replace(',', '.'))
+                    intervals = (energy.tibber_prices(db.get_pref(u['id'], 'tibber_token'), extra) if st['source'] == 'tibber'
+                                 else energy.spot_prices(st['area'], None, st['vat'] == '1', extra))
+                except (energy.EnergyError, ValueError):
+                    intervals = []
+            live = energy.price_outlook(intervals)
+            if not result:
+                intervals = []
+        self.send(code, pages.cost_page(u, self.session()['csrf'], form, _catalog_names(), result,
+                                        intervals if st['source'] != 'fast' else [], errors, has_tibber, kind, msg, live=live))
+
+    def _cost_compute(self, u, q):
         st = self._cost_settings(u['id'], q)
         names = _catalog_names()
         rows, errors = [], []
@@ -1130,9 +1298,9 @@ class Handler(BaseHTTPRequestHandler):
             result = costcalc.calculate(rows, st['mode'], per_kg, hours, watts, intervals, start, wear, offers,
                                         db.last_paid(u['id']), now)
             result.update(start=start, hours=hours, watts=watts, source=src_note, now=now)
-        has_tibber = bool(db.get_pref(u['id'], 'tibber_token'))
-        self.send(code, pages.cost_page(u, self.session()['csrf'], form, names, result, intervals if st['source'] != 'fast' else [],
-                                        errors, has_tibber, kind, msg))
+        form.update(printer=q.get('printer', [''])[-1][:20], name=q.get('name', [''])[-1][:120], markup=q.get('markup', [''])[-1], fail=q.get('fail', [''])[-1],
+                    qvat=q.get('qvat', ['0'])[-1], rnd=q.get('rnd', ['1'])[-1], customer=q.get('customer', [''])[-1][:120])
+        return form, result, intervals, errors, st
 
     def cost_post(self, path):
         f = self.form()
@@ -1144,6 +1312,25 @@ class Handler(BaseHTTPRequestHandler):
             if f.get('do') == 'spara':
                 self._save_cost_prefs(uid, f)
                 return self.get_cost('ok', 'Uträknat. Inställningarna är sparade som standard.', q=q)
+            if f.get('do') in ('logga', 'offert'):
+                u = self.user()
+                form, res, _, errors, _ = self._cost_compute(u, q)
+                if errors or not res or not res['grams']:
+                    return self.get_cost('err', 'Fyll i minst en färg med gram (och rätta eventuella fel) först.', 400, q=q)
+                if f.get('do') == 'offert':
+                    try:
+                        quote = costcalc.quote(res, *(float((form[k] or '0').replace(',', '.')) for k in ('markup', 'fail')),
+                                               form['qvat'] == '1', int(form['rnd'] or 1))
+                    except ValueError:
+                        return self.get_cost('err', 'Påslag och marginal anges i procent, t.ex. 30.', 400, q=q)
+                    return self.send(200, pages.quote_page(u, self.session()['csrf'], form, res, quote, _catalog_names()))
+                grams = {}
+                for l in res['lines']:
+                    grams[l['key']] = round(grams.get(l['key'], 0) + l['grams'], 2)
+                printer = next((n for pid, n, _ in costcalc.PRINTERS if pid == form.get('printer')), None)
+                db.add_print(uid, res['start'].timestamp(), form['name'] or 'Utskrift', printer, res['hours'], grams,
+                             res['filament'], res['el']['cost'], res['el']['kwh'], res['wear'], res['total'])
+                return self.redirect('/utskrifter?m=sparad')
             return self.get_cost(q=q)
         if path == '/kostnad/tibber':
             token = f.get('token', '').strip()
@@ -1275,7 +1462,10 @@ class Handler(BaseHTTPRequestHandler):
         if not u or u['must_change_pw']:
             return self.json(401, {'error': 'inte inloggad'})
         items = db.get_owned(u['id'])
-        self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': _bambu_summary(u['id'])})
+        bs = _bambu_summary(u['id'])
+        left = {k: v.get('grams') for k, v in (bs or {}).get('items', {}).items()}
+        self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': bs,
+                        'forecast': printlog.forecast(u['id'], left)})
 
     def api_owned_put(self):
         u = self.user()

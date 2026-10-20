@@ -16,7 +16,7 @@ commit-meddelanden och svar till användaren är på svenska.
   och serveras `no-store`; versionerade filer är `immutable`. Ändrar du `dist/*.js` behövs inget mer.
 - `dist/` – katalogdata (`data.json`), webbapp (`index.html`, `app.js`, `prices-ui.js`) och seed `offers.json`.
 - `katalog/db.py` – SQLite (DELETE-journal, inte WAL: Unraids FUSE klarar inte WAL). Tabeller:
-  users, sessions (bara token-hash), owned, wish, alerts (målpris/rabatt per önskad färg), cart, purchases,
+  users, sessions (bara token-hash), owned, wish, alerts (målpris/rabatt per önskad färg), cart, purchases (+ receipt), prints,
   prefs (budget, low_grams, notify, cost_*, tibber_token), cart_shares (bara token-hash), runs, settings, bambu_links, bambu_pending.
 - `katalog/security.py` – scrypt, rate limiters. `katalog/config.py` – alla miljövariabler med säkra standardvärden.
 - `katalog/bambu.py` – inofficiellt Bambu-moln-API (inloggning med e-postkod/TFA, filamentbibliotek), matchning
@@ -36,6 +36,13 @@ commit-meddelanden och svar till användaren är på svenska.
   `KATALOG_TIBBER_TEST_URL`) godtas bara mot 127.0.0.1. `window_cost()`/`cheapest_start()` räknar över intervallen.
 - `katalog/costcalc.py` + `/kostnad` – kostnadsräknaren; `assets/cost.js` läser .gcode.3mf/.gcode i webbläsaren och
   kopplar färger via `/api/match` (samma `bambu.SpoolMatcher` som Bambu-synken). Tibber-token i `prefs` (tibber_token).
+- `katalog/printlog.py` + `/utskrifter` – utskriftslogg (tabell prints), import från Bambu-molnet (`bambu.get_tasks`,
+  `/v1/user-service/my/tasks`, körs vid varje synk), summor och förbrukningsprognos (`forecast`, även i `/api/owned`).
+- `katalog/backup.py` – zip (db via backup-API, state/www/receipts), nattlig kopia i scheduler (`BACKUP_TIME`),
+  återställning via `db.restore_from` (bara till kända mappar). Kvitton: `PUT /api/receipt/<köp-id>` (rå kropp,
+  typ + magiska byte kontrolleras), `GET /kvitto/<id>` bara för ägaren.
+- PWA: `dist/manifest.webmanifest` och `dist/sw.js` (nätet först, cachar bara sida/skript/data.json/offers.json/assets).
+  Tibber Pulse: `energy.tibber_live` med minimal WebSocket-klient (`_WS`, bara `*.tibber.com`).
 - `katalog/history.py` – prishistorik per färg för diagrammet (`/api/history`), läser `state/price_history.json`.
 - `/delad/<token>` visar en inköpslista utan inloggning (skrivskyddad). Serverrenderade sidor får bara skript
   från `/assets/` (t.ex. `print.js`), aldrig inline.

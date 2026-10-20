@@ -102,6 +102,25 @@ CREATE TABLE IF NOT EXISTS purchases (
     weight INTEGER                      -- gram per enhet (för kr/kg i kostnadsräknaren)
 );
 CREATE INDEX IF NOT EXISTS purchases_user ON purchases(user_id, ts);
+CREATE TABLE IF NOT EXISTS prints (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ts REAL NOT NULL,                   -- start
+    name TEXT NOT NULL,
+    printer TEXT,
+    hours REAL NOT NULL DEFAULT 0,
+    grams TEXT NOT NULL,                -- JSON {katalognyckel eller "": gram}
+    filament REAL NOT NULL DEFAULT 0,   -- kr
+    el REAL NOT NULL DEFAULT 0,
+    kwh REAL NOT NULL DEFAULT 0,
+    wear REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'ok',  -- ok | failed | cancelled
+    source TEXT NOT NULL DEFAULT 'manual',  -- manual | bambu
+    ext_id TEXT,                        -- Bambu-molnets uppgifts-id
+    UNIQUE (user_id, source, ext_id)
+);
+CREATE INDEX IF NOT EXISTS prints_user ON prints(user_id, ts);
 CREATE TABLE IF NOT EXISTS cart_shares (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,    -- sha256 av delningslänkens token (själva token lagras aldrig)
@@ -179,6 +198,8 @@ def _migrate(c):
     cols = {r[1] for r in c.execute('PRAGMA table_info(purchases)')}
     if 'weight' not in cols:
         c.execute('ALTER TABLE purchases ADD COLUMN weight INTEGER')
+    if 'receipt' not in cols:
+        c.execute('ALTER TABLE purchases ADD COLUMN receipt TEXT')   # filnamn under /data/receipts/<användare>/
 
 
 def recover_runs():
@@ -379,6 +400,60 @@ def last_paid(user_id):
 
 def get_purchases(user_id, limit=200):
     return conn().execute('SELECT * FROM purchases WHERE user_id=? ORDER BY ts DESC, id LIMIT ?', (user_id, limit)).fetchall()
+
+
+def purchase_batch(user_id, purchase_id):
+    """Alla rader från samma köp (samma tid och butik) som raden purchase_id."""
+    r = conn().execute('SELECT ts, shop FROM purchases WHERE id=? AND user_id=?', (purchase_id, user_id)).fetchone()
+    if not r:
+        return []
+    return conn().execute('SELECT * FROM purchases WHERE user_id=? AND ts=? AND shop=? ORDER BY id',
+                          (user_id, r['ts'], r['shop'])).fetchall()
+
+
+def set_receipt(user_id, purchase_id, filename):
+    rows = purchase_batch(user_id, purchase_id)
+    with tx() as c:
+        for r in rows:
+            c.execute('UPDATE purchases SET receipt=? WHERE id=?', (filename, r['id']))
+    return bool(rows)
+
+
+# --- utskriftslogg ---
+def add_print(user_id, ts, name, printer, hours, grams, filament, el, kwh, wear, total, status='ok', source='manual', ext_id=None):
+    with tx() as c:
+        cur = c.execute('INSERT OR IGNORE INTO prints(user_id,ts,name,printer,hours,grams,filament,el,kwh,wear,total,status,source,ext_id) '
+                        'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        (user_id, ts, name[:120], printer, hours, json.dumps(grams, ensure_ascii=False), filament, el, kwh,
+                         wear, total, status, source, ext_id))
+        return cur.rowcount > 0
+
+
+def get_prints(user_id, since=0, limit=1000):
+    return conn().execute('SELECT * FROM prints WHERE user_id=? AND ts>=? ORDER BY ts DESC LIMIT ?',
+                          (user_id, since, limit)).fetchall()
+
+
+def delete_print(user_id, print_id):
+    with tx() as c:
+        c.execute('DELETE FROM prints WHERE id=? AND user_id=?', (print_id, user_id))
+
+
+def print_ext_ids(user_id, source='bambu'):
+    return {r['ext_id'] for r in conn().execute('SELECT ext_id FROM prints WHERE user_id=? AND source=?', (user_id, source))}
+
+
+def restore_from(path):
+    """Ersätter databasens innehåll med en säkerhetskopia (SQLite backup-API, säkert medan servern kör)."""
+    import sqlite3
+    src = sqlite3.connect(str(path))
+    try:
+        with _lock:
+            src.backup(conn())
+    finally:
+        src.close()
+    with _lock:
+        _migrate(conn())
 
 
 # --- inställningar per användare ---

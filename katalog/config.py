@@ -117,3 +117,9 @@ PUBLIC_URL = os.environ.get('PUBLIC_URL', '').strip().rstrip('/')
 # Elpris för kostnadsräknaren. Adresserna kan bara ändras för tester (låtsasservrar på 127.0.0.1).
 ELPRIS_BASE = os.environ.get('KATALOG_ELPRIS_TEST_BASE', 'https://www.elprisetjustnu.se').rstrip('/')
 TIBBER_URL = os.environ.get('KATALOG_TIBBER_TEST_URL', 'https://api.tibber.com/v1-beta/gql')
+
+# Automatisk säkerhetskopia varje natt till /data/backups (tom tid = av) och hur många som sparas.
+BACKUP_TIME = os.environ.get('BACKUP_TIME', '03:30').strip()
+BACKUP_KEEP = max(1, _int('BACKUP_KEEP', 7))
+BACKUP_DIR = DATA_DIR / 'backups'
+RECEIPT_DIR = DATA_DIR / 'receipts'

@@ -123,6 +123,16 @@ class WebFlow(unittest.TestCase):
             s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':_h.unescape(shop.group(1))}); ok(s==200 and 'Markerat som köpt' in b and 'Köphistorik' in b,'markera som köpt: %s'%s)
             s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':'Finns inte'}); ok(s==409,'okänd butik ger 409')
         req(a,'/api/cart',json.dumps({'key':'PLA Basic|10101','qty':1}).encode(),'PUT',J)
+        # kvitto på köpet
+        s,h,b=req(a,'/inkopslista'); pid=re.search(r'data-receipt="(\d+)"',b); ok(pid is not None,'kvitto kan läggas till på köpet')
+        if pid:
+            png=b'\x89PNG\r\n\x1a\n'+b'0'*100
+            s,h,b=req(a,'/api/receipt/'+pid.group(1),png,'PUT',{'Content-Type':'image/png','X-CSRF-Token':me['csrf']}); ok(s==200,'ladda upp kvitto: %s'%b)
+            s,h,b=req(a,'/api/receipt/'+pid.group(1),b'<html>','PUT',{'Content-Type':'image/png','X-CSRF-Token':me['csrf']}); ok(s==415,'fel filinnehåll nekas')
+            s,h,b=req(a,'/api/receipt/'+pid.group(1),png,'PUT',{'Content-Type':'text/html','X-CSRF-Token':me['csrf']}); ok(s==415,'fel filtyp nekas')
+            r=urllib.request.Request(B+'/kvitto/'+pid.group(1),headers={'Host':f'127.0.0.1:{self.port}'})
+            with a.open(r) as x: ok(x.read()==png and x.headers['Content-Type']=='image/png','visa kvitto')
+            s,h,b=req(client()[0],'/kvitto/'+pid.group(1)); ok(s in (303,404),'kvitto kräver inloggning')
         # kostnadsräknare (fast elpris: inga nätanrop)
         s,h,b=req(a,'/kostnad'); t10=csrf(b); ok(s==200 and 'Kostnadsräknare' in b and 'cost.js' in b,'kostnadsräknaren visas')
         f={'csrf':t10,'k1':'PLA Basic|10101','g1':'50','k2':'','g2':'10','h':'2','m':'30','w':'100','src':'fast','fixed':'2','extra':'0,6',
@@ -135,6 +145,22 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/kostnad/tibber',{'csrf':t10,'token':'kort','do':'spara'}); ok(s==400,'ogiltigt Tibber-token nekas')
         os.makedirs(D+'/state',exist_ok=True); open(D+'/state/bambu_color_codes.json','w').write('[]')
         s,h,b=req(a,'/api/match',json.dumps({'items':[{'id':'GFA00','type':'PLA Basic','color':'#000000'}]}).encode(),'PUT',J); ok(s==200 and 'keys' in json.loads(b),'matcha slicerns filament: %s'%b)
+        # utskriftslogg och offert från kostnadsräknaren
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='logga',name='Testbit')); ok(s==303,'spara utskrift i loggen')
+        s,h,b=req(a,'/utskrifter'); ok(s==200 and 'Testbit' in b and 'Förbrukning per färg' in b,'utskriftsloggen visar utskriften')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='offert',markup='50',fail='10',qvat='1',rnd='10',customer='Kalle')); ok(s==200 and 'Att betala' in b and 'Kalle' in b,'offert skapas')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='offert',markup='abc')); ok(s==400,'ogiltigt påslag nekas')
+        # säkerhetskopior
+        s,h,b=req(a,'/admin'); t11=csrf(b)
+        s,h,b=req(a,'/admin/sakerhetskopior/ny',{'csrf':t11}); name=re.search(r'(katalog-\d{8}-\d{4}\.zip)',b); ok(s==200 and name,'säkerhetskopiera nu')
+        if name:
+            s,h,b=req(a,'/admin/sakerhetskopior/'+name.group(1)+'/aterstall',{'csrf':t11,'confirm':'nej'}); ok(s==400,'återställning kräver bekräftelse')
+            r=urllib.request.Request(B+'/admin/sakerhetskopior/'+name.group(1),headers={'Host':f'127.0.0.1:{self.port}'})
+            with a.open(r) as x: ok(x.read()[:2]==b'PK','ladda ner sparad säkerhetskopia')
+        s,h,b=req(a,'/admin/sakerhetskopior/..%2Fkatalog.db'); ok(s==404,'ingen sökvägsflykt för säkerhetskopior')
+        # app och offline
+        s,h,b=req(a,'/manifest.webmanifest'); ok(s==200 and json.loads(b)['lang']=='sv','manifest serveras')
+        s,h,b=req(a,'/sw.js'); ok(s==200 and 'caches' in b,'service worker serveras')
         # budget och delning
         s,h,b=req(a,'/inkopslista'); t6=csrf(b); ok(s==200 and 'Dela listan' in b and 'data-print' in b,'inköpslistan har delning och utskrift')
         s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'1','do':'spara'}); ok(s==303,'spara budget')

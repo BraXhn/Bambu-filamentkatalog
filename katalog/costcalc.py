@@ -74,3 +74,18 @@ def calculate(rows, mode, custom_per_kg, hours, watts, intervals, start, wear_pe
     cheap = energy.cheapest_start(intervals, hours, watts, now or start) if len(intervals) > 1 else None
     return {'lines': lines, 'filament': filament, 'grams': grams_total, 'el': el, 'wear': wear, 'total': total,
             'missing': missing, 'cheapest': cheap, 'per_gram': total / grams_total if grams_total else None}
+
+
+def quote(res, markup_pct, fail_pct, vat, rounding):
+    """Offert för en utskrift: självkostnad + marginal för misslyckade utskrifter + påslag (+ moms), avrundat uppåt."""
+    if not (0 <= markup_pct <= 1000 and 0 <= fail_pct <= 100) or rounding not in (1, 5, 10):
+        raise ValueError
+    cost = res['total']
+    risk = cost * fail_pct / 100
+    markup = (cost + risk) * markup_pct / 100
+    ex_vat = cost + risk + markup
+    vat_amount = ex_vat * 0.25 if vat else 0.0
+    total = ex_vat + vat_amount
+    rounded = -(-total // rounding) * rounding if total else 0
+    return {'cost': cost, 'risk': risk, 'markup': markup, 'ex_vat': ex_vat, 'vat': vat_amount, 'total': total,
+            'rounded': rounded, 'markup_pct': markup_pct, 'fail_pct': fail_pct, 'rounding': rounding}

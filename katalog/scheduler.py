@@ -120,6 +120,14 @@ def _loop():
                 bambu.sync_all(lambda m: print('[bambu] ' + m, flush=True))
             except Exception as ex:  # noqa: BLE001
                 print(f'[bambu] fel: {ex}', flush=True)
+        # Nattens säkerhetskopia.
+        try:
+            from . import backup
+            last = backup.list_backups()
+            if backup.due(datetime.datetime.now(TZ), last[0]['name'] if last else None):
+                print(f'[backup] säkerhetskopia sparad: {backup.create(datetime.datetime.now(TZ))}', flush=True)
+        except Exception as ex:  # noqa: BLE001
+            print(f'[backup] fel: {ex!r}', flush=True)
         # Städa gamla sessioner en gång per varv.
         try:
             now = time.time()

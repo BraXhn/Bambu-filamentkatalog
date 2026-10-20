@@ -3,7 +3,7 @@
 (() => {
   const $ = s => document.querySelector(s);
   const printer = $('.cost-printer');
-  if (printer) printer.addEventListener('change', () => { if (printer.value) $('#cw').value = printer.value; });
+  if (printer) printer.addEventListener('change', () => { const o = printer.selectedOptions[0]; if (o && o.dataset.watts) $('#cw').value = o.dataset.watts; });
   const file = $('#costFile'), status = $('#costFileStatus');
   if (!file) return;
   const say = t => { status.textContent = t; };
@@ -114,4 +114,25 @@
       say('Filen kunde inte läsas: ' + (err.message || err));
     }
   });
+})();
+
+// Tibber Pulse: hemmets effekt just nu, uppdateras var 30:e sekund medan sidan är öppen.
+(() => {
+  const box = document.querySelector('#livePower');
+  if (!box) return;
+  const fmt = n => new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 }).format(n);
+  async function poll() {
+    try {
+      const r = await fetch('/api/tibber/live', { credentials: 'same-origin' });
+      const j = await r.json();
+      if (r.ok && j.live && typeof j.live.power === 'number') {
+        box.hidden = false;
+        box.querySelector('strong').textContent = fmt(j.live.power) + ' W';
+        box.querySelectorAll('span')[1].textContent = typeof j.live.today === 'number'
+          ? `${String(Math.round(j.live.today * 10) / 10).replace('.', ',')} kWh i dag` : '';
+      } else if (r.ok && !j.live) return;          // ingen Pulse/Watty: sluta fråga
+    } catch {}
+    if (!document.hidden) setTimeout(poll, 30000); else document.addEventListener('visibilitychange', poll, { once: true });
+  }
+  poll();
 })();
