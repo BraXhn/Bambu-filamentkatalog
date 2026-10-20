@@ -187,6 +187,30 @@ def get_spools(token, region='global'):
     return spools
 
 
+# ---------------------------------------------------------------- utskriftshistorik
+TASK_PAGE = 50
+TASK_MAX = 500
+
+
+def get_tasks(token, region='global', limit=TASK_MAX):
+    """Utskrifter från Bambu-molnet (nyast först): titel, start, tid, vikt och AMS-fack med färg och filament-id."""
+    tasks, offset = [], 0
+    while len(tasks) < limit:
+        status, _, raw = _request('GET', API[region] + f'/v1/user-service/my/tasks?offset={offset}&limit={TASK_PAGE}', token=token)
+        if status == 401:
+            raise TokenExpired('Inloggningen hos Bambu Lab har gått ut. Koppla kontot igen.')
+        if status != 200:
+            raise BambuError(f'Kunde inte hämta utskriftshistoriken (HTTP {status}).')
+        data = _json(raw)
+        hits = [h for h in (data.get('hits') or []) if isinstance(h, dict)]
+        tasks += hits
+        offset += len(hits)
+        total = data.get('total')
+        if len(hits) < TASK_PAGE or (isinstance(total, int) and offset >= total):
+            break
+    return tasks[:limit]
+
+
 # ---------------------------------------------------------------- färgkoder
 def _hex6(value):
     v = str(value or '').strip().lstrip('#').upper()
@@ -320,11 +344,18 @@ def sync_user(user_id):
         db.save_bambu_sync(user_id, 'error', str(e), token=link['token'])
         return False, str(e)
     db.save_bambu_sync(user_id, 'ok', matched=matched, unmatched=unmatched, token=link['token'])
+    imported = ''
+    try:   # utskriftshistoriken är en bonus: fel här ska inte göra synken misslyckad
+        from . import printlog
+        k = printlog.import_bambu(user_id, link)
+        imported = f' {k} nya utskrifter hämtade.' if k else ''
+    except Exception as ex:  # noqa: BLE001
+        print(f'[bambu] utskriftshistorik för användare {user_id}: {ex}', flush=True)
     n = sum(m['spools'] for m in matched.values())
     total = n + len(unmatched)
     msg = f'{total} {"spole" if total == 1 else "spolar"} i biblioteket: {n} kopplade till {len(matched)} ' \
           f'{"färg" if len(matched) == 1 else "färger"} i katalogen'
-    return True, msg + (f', {len(unmatched)} utan motsvarighet i katalogen.' if unmatched else '.')
+    return True, msg + (f', {len(unmatched)} utan motsvarighet i katalogen.' if unmatched else '.') + imported
 
 
 def sync_all(log=print):

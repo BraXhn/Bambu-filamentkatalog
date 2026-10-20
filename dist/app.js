@@ -10,13 +10,15 @@ let cartItems=new Map(),cartReady=false;
 let wish=new Set(),wishReady=false,onlyWish=false,onlyLow=false,lowGrams=200,wishHits=new Set();
 let compare=[];const COMPARE_MAX=4;
 function compareButton(d){const k=ownedKey(d),on=compare.includes(k);return `<button class="compare-button ${on?'on':''}" data-compare="${esc(k)}" aria-pressed="${on}"${!on&&compare.length>=COMPARE_MAX?' disabled title="Högst 4 färger åt gången"':''}>${on?'✓ Jämförs':'⇄ Jämför'}</button>`}
-const isLow=d=>{const b=inBambu(d);return !!b&&typeof b.grams==='number'&&b.grams<lowGrams};
+let forecast={};const LOW_DAYS=14;
+const daysLeft=d=>{const f=forecast[ownedKey(d)];return f&&typeof f.days==='number'?f.days:null};
+const isLow=d=>{const b=inBambu(d);if(!b)return false;const n=daysLeft(d);return (typeof b.grams==='number'&&b.grams<lowGrams)||(n!==null&&n<LOW_DAYS)};
 function wishButton(d){if(!wishReady)return '';const on=wish.has(ownedKey(d));const hit=on&&wishHits.has(ownedKey(d));return `${hit?'<a class="hit-badge" href="onskelista">🔔 Ditt pris är nått</a>':''}<button class="wish-button ${on?'on':''}" data-wish="${esc(ownedKey(d))}" aria-pressed="${on}" aria-label="${on?'Ta bort '+esc(d.type+' '+d.name)+' från önskelistan':'Lägg '+esc(d.type+' '+d.name)+' på önskelistan'}">${on?'♥ På önskelistan':'♡ Önskelista'}</button>`}
 function cartButton(d){if(!cartReady)return '';const q=cartItems.get(ownedKey(d))||0;return `<button class="cart-button ${q?'in-cart':''}" data-cart="${esc(ownedKey(d))}" aria-label="${q?'Lägg till en till i inköpslistan':'Lägg i inköpslistan'}">${q?`✓ ${q} st i inköpslistan · +1`:'+ Inköpslista'}</button>`}
 function cartCount(){let n=0;for(const v of cartItems.values())n+=v;const a=document.querySelector('#cartLink');if(a)a.textContent=n?`Inköpslista (${n})`:'Inköpslista'}
 const safeUrl=u=>/^https:\/\//i.test(String(u||''))?u:'#';const hexOk=h=>/^#[0-9A-Fa-f]{3,8}$/.test(h);
 const $=s=>document.querySelector(s);const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function ownership(d){const b=inBambu(d);if(b){const left=b.grams?` · ${b.grams} g kvar`:'';return `<label class="ownership is-owned from-bambu" title="Synkat från ditt Bambu Lab-filamentbibliotek. Ändras i Bambu Handy eller Bambu Studio."><input type="checkbox" checked disabled aria-label="${esc(d.type+' '+d.name)} finns i ditt Bambu-bibliotek"><span>Bambu-biblioteket${b.spools>1?` · ${b.spools} spolar`:''}${esc(left)}${isLow(d)?' <b class="low-badge">Snart slut</b>':''}</span></label>`}return `<label class="ownership ${owned.has(ownedKey(d))?'is-owned':''}"><input type="checkbox" data-owned="${esc(ownedKey(d))}" aria-label="Jag har ${esc(d.type+' '+d.name)}" ${owned.has(ownedKey(d))?'checked':''}><span>Jag har detta filament</span></label>`}
+function ownership(d){const b=inBambu(d);if(b){const left=b.grams?` · ${b.grams} g kvar`:'';return `<label class="ownership is-owned from-bambu" title="Synkat från ditt Bambu Lab-filamentbibliotek. Ändras i Bambu Handy eller Bambu Studio."><input type="checkbox" checked disabled aria-label="${esc(d.type+' '+d.name)} finns i ditt Bambu-bibliotek"><span>Bambu-biblioteket${b.spools>1?` · ${b.spools} spolar`:''}${esc(left)}${daysLeft(d)!==null?` · räcker ca ${daysLeft(d)} ${daysLeft(d)===1?'dag':'dagar'}`:''}${isLow(d)?' <b class="low-badge">Snart slut</b>':''}</span></label>`}return `<label class="ownership ${owned.has(ownedKey(d))?'is-owned':''}"><input type="checkbox" data-owned="${esc(ownedKey(d))}" aria-label="Jag har ${esc(d.type+' '+d.name)}" ${owned.has(ownedKey(d))?'checked':''}><span>Jag har detta filament</span></label>`}
 function color(d){const hx=d.hex.filter(hexOk);return hx.length>1?`linear-gradient(120deg,${hx.join(',')})`:hx[0]||'repeating-linear-gradient(45deg,#e5e9e2 0 8px,#f4f6f0 8px 16px)'}
 function art(d,mini=false){if(!swatches&&d.image)return `<img loading="lazy" src="${esc(d.image)}${d.image.includes('?')?'&':'?'}width=${mini?120:500}" alt="${esc(d.type+' – '+d.name)}" data-fallback><span hidden>Bild kunde inte hämtas</span>`;return `<span role="img" aria-label="${esc(d.hex.length?'Färgprov '+d.name:'HEX-kod saknas')}" class="${mini?'mini':'swatch'}" style="background:${color(d)}">${!d.hex.length&&!mini?'<span style="position:absolute;bottom:20px;left:15px;font-size:12px;background:white;padding:6px">HEX-kod saknas</span>':''}</span>`}
 function render(){let q=$('#search').value.trim().toLowerCase();shown=data.filter(d=>(!window.onlyDeals||window.priceInfo?.(ownedKey(d))?.deal)&&(!window.onlyPriced||window.catalogOffers?.some(o=>o.key===ownedKey(d)&&(!o.endAt||Date.parse(o.endAt)>Date.now())))&&(!onlyOwned||has(d))&&(!onlyWish||wish.has(ownedKey(d)))&&(!onlyLow||isLow(d))&&(!family||d.family===family)&&(!$('#type').value||d.type===$('#type').value)&&[d.type,d.name,d.code,...d.hex].join(' ').toLowerCase().includes(q));let key=$('#sort').value;const pi=d=>window.priceInfo?.(ownedKey(d));shown.sort(key==='price'?(a,b)=>(pi(a)?.best?.perKg??Infinity)-(pi(b)?.best?.perKg??Infinity)||a.name.localeCompare(b.name):key==='discount'?(a,b)=>(pi(b)?.deal?.o.discount??-1)-(pi(a)?.deal?.o.discount??-1)||(pi(a)?.best?.perKg??Infinity)-(pi(b)?.best?.perKg??Infinity):(a,b)=>(a[key]||'zzz').localeCompare(b[key]||'zzz','sv')||a.name.localeCompare(b.name));$('#count').textContent=`Visar ${shown.length} av ${data.length} färgvarianter · Du har ${data.filter(has).length}`;$('#ownedFilter').textContent=`Mina filament (${data.filter(has).length})`;$('#ownedFilter').classList.toggle('active',onlyOwned);$('#ownedFilter').setAttribute('aria-pressed',onlyOwned);filterButtons();$('#families').innerHTML=['',...new Set(data.map(d=>d.family))].map(f=>`<button class="${f===family?'active':''}" data-family="${esc(f)}" aria-pressed="${f===family}">${esc(f||'Alla material')}</button>`).join('');$('#results').className=table?'tablebox':'grid';if(!shown.length){$('#results').innerHTML='<div class="empty"><h2>Inga färger matchar din sökning</h2><p>Prova ett annat färgnamn eller rensa filtren.</p></div>';return}$('#results').innerHTML=table?`<table><thead><tr><th>Bild</th><th>Filamenttyp</th><th>Färg</th><th>Färgnummer</th><th>HEX</th><th>Lägsta pris</th><th>Priser</th><th>Jag har</th><th>Källa</th></tr></thead><tbody>${shown.map(d=>`<tr><td>${art(d,true)}</td><td>${esc(d.type)}</td><td>${esc(d.name)}</td><td>${esc(d.code||'Ej angivet')}</td><td>${esc(d.hex.join(' / '))||'Ej angiven'}</td><td>${(()=>{const e=window.priceInfo?.(ownedKey(d));return (e?.best?money(e.best.total):'—')+(e?.deal?` <span class="deal-badge">−${e.deal.o.discount} %</span>`:'')})()}</td><td><button data-prices="${esc(ownedKey(d))}">Jämför priser ↗</button></td><td>${ownership(d)}${cartButton(d)}${wishButton(d)}${compareButton(d)}</td><td><a href="${esc(safeUrl(d.source))}" target="_blank" rel="noopener">Bambu Lab ↗</a></td></tr>`).join('')}</tbody></table>`:shown.map(d=>`<article class="card"><div class="picture">${art(d)}<span class="tag">${esc(d.type)}</span></div><div class="body"><small>${esc(d.family)} / ${esc(d.type)}</small><h2>${esc(d.name)}</h2><div class="codes"><div><label>Färgnummer</label><b>${esc(d.code||'Ej angivet')}</b></div><div><label>HEX</label><b>${d.hex.filter(hexOk).map(h=>`<span class="color-dot" style="background:${h}"></span>${esc(h)}`).join('<br>')||'Ej angiven'}</b></div></div>${window.priceLine?window.priceLine(d):''}${ownership(d)}${cartButton(d)}${wishButton(d)}${compareButton(d)}<button class="price-button" data-prices="${esc(ownedKey(d))}">Jämför priser & Tradera ↗</button><a class="source" href="${esc(safeUrl(d.source))}" target="_blank" rel="noopener">Produktsida · ${esc(d.region)} ↗</a></div></article>`).join('')}
@@ -68,8 +70,8 @@ function userMenu(){
  const nav=document.createElement('nav');nav.className='usermenu';nav.setAttribute('aria-label','Konto');
  const who=document.createElement('span');who.className='who';who.append('Inloggad som ');const b=document.createElement('b');b.textContent=session.username;who.append(b);nav.append(who);
  const link=(href,text)=>{const a=document.createElement('a');a.href=href;a.textContent=text;nav.append(a)};
- link('onskelista','Önskelista');link('inkopslista','Inköpslista');nav.lastChild.id='cartLink';link('konto','Mitt konto');if(session.isAdmin)link('admin','Administration');
- const f=document.createElement('form');f.method='post';f.action='logout';const c=document.createElement('input');c.type='hidden';c.name='csrf';c.value=session.csrf;const btn=document.createElement('button');btn.type='submit';btn.textContent='Logga ut';f.append(c,btn);f.addEventListener('submit',()=>{try{localStorage.removeItem(storageKey)}catch{}});nav.append(f);
+ link('onskelista','Önskelista');link('inkopslista','Inköpslista');nav.lastChild.id='cartLink';link('kostnad','Kostnad');link('utskrifter','Utskrifter');link('konto','Mitt konto');if(session.isAdmin)link('admin','Administration');
+ const f=document.createElement('form');f.method='post';f.action='logout';const c=document.createElement('input');c.type='hidden';c.name='csrf';c.value=session.csrf;const btn=document.createElement('button');btn.type='submit';btn.textContent='Logga ut';f.append(c,btn);f.addEventListener('submit',()=>{try{localStorage.removeItem(storageKey)}catch{}try{caches.delete(OFFLINE_CACHE)}catch{}});nav.append(f);
  document.querySelector('header').append(nav);
 }
 fetch('api/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(me=>{
@@ -84,6 +86,7 @@ fetch('api/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(me=
   // Rutor som kryssades medan listan laddades läggs ovanpå kontots lista.
   for(const [k,on] of edits){if(on)merged.add(k);else merged.delete(k)}
   owned=merged;ownedLoaded=true;$('#saveStatus').textContent='Dina markeringar sparas på ditt konto och syns på alla dina enheter.';
+  forecast=d.forecast||{};
   if(d.bambu){bambuInfo=d.bambu;bambuOwned=d.bambu.items||{};const n=Object.keys(bambuOwned).length;const when=d.bambu.lastSync?new Date(d.bambu.lastSync*1000).toLocaleString('sv-SE',{dateStyle:'short',timeStyle:'short'}):'aldrig';const warn=d.bambu.status==='expired'?' Inloggningen hos Bambu har gått ut – koppla igen under Mitt konto.':d.bambu.status==='error'?' Senaste synken misslyckades.':'';$('#saveStatus').textContent=`${n} färger kommer från ditt Bambu Lab-bibliotek (synkat ${when}).${warn} Övriga markeringar sparas på ditt konto.`}
   if((!d.saved&&merged.size)||edits.size)saveOwned();else localSave();edits.clear();
   if(data.length)render();
@@ -117,3 +120,39 @@ $('#compareShow').onclick=()=>{
  $('#compareDialog').showModal()};
 $('#compareContent').addEventListener('click',e=>{const b=e.target.closest('[data-prices]');if(!b)return;$('#compareDialog').close();window.openPrices?.(b.dataset.prices)});
 $('#closeCompare').onclick=()=>$('#compareDialog').close();
+
+// --- Skanna spolens eller kartongens etikett (streckkod/QR) med kameran ---
+let skuMap=null;
+async function lookupScan(raw){
+ const v=String(raw||'').toUpperCase();
+ if(!skuMap){try{const r=await fetch('api/skus',{credentials:'same-origin'});skuMap=r.ok?(await r.json()).skus:{}}catch{skuMap={}}}
+ const codes=new Set(data.map(d=>d.code).filter(Boolean));
+ const code=(v.match(/\b\d{5}\b/g)||[]).find(c=>codes.has(c))||(()=>{const m=v.match(/[A-Z]\d{2}-[A-Z0-9]{2}/g)||[];for(const k of m)if(skuMap[k])return skuMap[k]})();
+ return code||null;
+}
+async function showScan(raw){
+ const code=await lookupScan(raw);$('#scanDialog').close();stopScan();
+ $('#search').value=code||String(raw).slice(0,40);render();
+ $('#count').textContent=(code?`Skannad färg ${code}: `:'Okänd kod – sökte på texten: ')+$('#count').textContent;
+ $('#results').scrollIntoView({behavior:'smooth'});
+}
+let scanStream=null,scanTimer=null;
+function stopScan(){clearInterval(scanTimer);scanTimer=null;if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null}}
+$('#scanButton').onclick=async()=>{
+ $('#scanDialog').showModal();$('#scanStatus').textContent='';
+ if(!('BarcodeDetector' in window)){$('#scanStatus').textContent='Webbläsaren kan inte läsa streckkoder (fungerar i Chrome på Android och i Edge). Skriv färgnumret eller artikelnumret nedan.';$('#scanVideo').hidden=true;return}
+ try{
+  const det=new BarcodeDetector({formats:['qr_code','ean_13','ean_8','code_128','code_39','data_matrix']});
+  scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+  const v=$('#scanVideo');v.hidden=false;v.srcObject=scanStream;await v.play();$('#scanStatus').textContent='Rikta kameran mot streckkoden eller QR-koden på etiketten.';
+  scanTimer=setInterval(async()=>{try{const r=await det.detect(v);if(r.length)showScan(r[0].rawValue)}catch{}},300);
+ }catch{$('#scanStatus').textContent='Kameran kunde inte startas. Tillåt kameran för sidan, eller skriv numret nedan.';$('#scanVideo').hidden=true}
+};
+$('#scanDialog').addEventListener('close',stopScan);
+$('#closeScan').onclick=()=>$('#scanDialog').close();
+$('#scanManual').addEventListener('submit',e=>{e.preventDefault();const v=$('#scanInput').value.trim();if(v)showScan(v)});
+
+// --- Installerbar app och offline-läge (katalogen och senast hämtade priser) ---
+const OFFLINE_CACHE='katalog-offline-v1';
+if('serviceWorker' in navigator&&location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1'){navigator.serviceWorker?.register('sw.js').catch(()=>{})}
+window.addEventListener('offline',()=>{$('#notice').textContent='Du är offline – katalogen och de senast hämtade priserna visas. Markeringar sparas när du är online igen.'});

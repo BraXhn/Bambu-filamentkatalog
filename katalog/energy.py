@@ -189,3 +189,142 @@ def cheapest_start(intervals, hours, watts, earliest):
         if c['covered'] >= 0.999 and (best is None or c['cost'] < best[1]['cost'] - 1e-9):
             best = (st, c)
     return best
+
+
+def price_outlook(intervals, now=None):
+    """Elpriset just nu och om det lönar sig att vänta: första tid inom 6 h då priset är minst 15 % lägre,
+    och lägsta priset de närmaste 12 timmarna."""
+    if not intervals:
+        return None
+    now = now or datetime.datetime.now(TZ)
+    cur = next((p for s, e, p in intervals if s <= now < e), None)
+    if cur is None:
+        return None
+    ahead = [(s, p) for s, e, p in intervals if now < s <= now + datetime.timedelta(hours=12)]
+    drop = next(((s, p) for s, p in ahead if s <= now + datetime.timedelta(hours=6) and p <= cur * 0.85), None)
+    low = min(ahead, key=lambda x: x[1]) if ahead else None
+    return {'now': cur, 'drop': drop, 'low': low, 'at': now}
+
+
+# --- Tibber Pulse i realtid (GraphQL-prenumeration över WebSocket, en mätning per anrop) ---
+import base64 as _b64  # noqa: E402
+import os as _os  # noqa: E402
+import socket as _socket  # noqa: E402
+import ssl as _ssl  # noqa: E402
+import urllib.parse as _up  # noqa: E402
+
+LIVE_QUERY = ('{ viewer { websocketSubscriptionUrl homes { id currentSubscription { status } '
+              'features { realTimeConsumptionEnabled } } } }')
+
+
+class _WS:
+    """Minimal WebSocket-klient (RFC 6455) för Tibbers prenumeration: textramar, maskering, ping/pong."""
+
+    def __init__(self, url, timeout=8):
+        p = _up.urlsplit(url)
+        if p.scheme != 'wss' or not (p.hostname or '').endswith('.tibber.com'):
+            raise EnergyError('oväntad adress för Tibbers realtidsdata')
+        raw = _socket.create_connection((p.hostname, p.port or 443), timeout=timeout)
+        self.s = _ssl.create_default_context().wrap_socket(raw, server_hostname=p.hostname)
+        key = _b64.b64encode(_os.urandom(16)).decode()
+        path = (p.path or '/') + (('?' + p.query) if p.query else '')
+        self.s.sendall((f'GET {path} HTTP/1.1\r\nHost: {p.hostname}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+                        f'Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: graphql-transport-ws\r\n'
+                        f'User-Agent: BambuKatalog/1.0\r\n\r\n').encode())
+        head = b''
+        while b'\r\n\r\n' not in head:
+            chunk = self.s.recv(4096)
+            if not chunk:
+                raise EnergyError('Tibbers realtidsdata svarade inte')
+            head += chunk
+            if len(head) > 16384:
+                raise EnergyError('oväntat svar från Tibber')
+        status, _, self.buf = head.partition(b'\r\n\r\n')
+        if b' 101 ' not in status.split(b'\r\n')[0]:
+            raise EnergyError('Tibber godkände inte realtidsanslutningen')
+
+    def _recv(self, n):
+        while len(self.buf) < n:
+            chunk = self.s.recv(65536)
+            if not chunk:
+                raise EnergyError('anslutningen till Tibber bröts')
+            self.buf += chunk
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def send(self, obj, opcode=1):
+        data = json.dumps(obj).encode() if opcode == 1 else obj
+        mask = _os.urandom(4)
+        n = len(data)
+        head = bytes([0x80 | opcode]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + n.to_bytes(2, 'big')
+                                         if n < 65536 else bytes([0x80 | 127]) + n.to_bytes(8, 'big'))
+        self.s.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def recv(self):
+        while True:
+            b1, b2 = self._recv(2)
+            n = b2 & 0x7F
+            if n == 126:
+                n = int.from_bytes(self._recv(2), 'big')
+            elif n == 127:
+                n = int.from_bytes(self._recv(8), 'big')
+            if n > 1_000_000:
+                raise EnergyError('för stort meddelande från Tibber')
+            mask = self._recv(4) if b2 & 0x80 else None
+            data = self._recv(n)
+            if mask:
+                data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+            op = b1 & 0x0F
+            if op == 9:
+                self.send(data, 10)
+            elif op == 8:
+                raise EnergyError('Tibber stängde realtidsanslutningen')
+            elif op == 1:
+                return json.loads(data)
+
+    def close(self):
+        try:
+            self.s.close()
+        except OSError:
+            pass
+
+
+def tibber_live(token):
+    """Senaste mätningen från Tibber Pulse/Watty: {'power': W, 'today': kWh, 'cost': kr, 'at': tid} eller None."""
+    if not token:
+        return None
+    url = _base(config.TIBBER_URL, _PROD['tibber'])
+
+    def fetch():
+        status, body = _request(url, json.dumps({'query': LIVE_QUERY}).encode(),
+                                {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'})
+        if status != 200:
+            raise EnergyError(f'Tibber svarade {status}')
+        try:
+            v = json.loads(body)['data']['viewer']
+            home = next(h for h in v['homes'] if (h.get('features') or {}).get('realTimeConsumptionEnabled'))
+            ws_url = v['websocketSubscriptionUrl']
+        except (ValueError, KeyError, TypeError, StopIteration):
+            return None          # ingen Pulse/Watty kopplad
+        ws = _WS(ws_url)
+        try:
+            ws.send({'type': 'connection_init', 'payload': {'token': token}})
+            deadline = time.time() + 8
+            while time.time() < deadline:
+                m = ws.recv()
+                if m.get('type') == 'connection_ack':
+                    ws.send({'id': '1', 'type': 'subscribe', 'payload': {'query':
+                             'subscription($id: ID!){ liveMeasurement(homeId: $id){ timestamp power accumulatedConsumption accumulatedCost } }',
+                             'variables': {'id': home['id']}}})
+                elif m.get('type') == 'next':
+                    lm = m['payload']['data']['liveMeasurement']
+                    return {'power': lm.get('power'), 'today': lm.get('accumulatedConsumption'),
+                            'cost': lm.get('accumulatedCost'), 'at': lm.get('timestamp')}
+                elif m.get('type') in ('error', 'connection_error'):
+                    raise EnergyError('Tibber nekade realtidsdata')
+        except (OSError, ValueError, KeyError, TypeError) as ex:
+            raise EnergyError(f'realtidsdata kunde inte läsas ({ex})') from None
+        finally:
+            ws.close()
+        return None
+    return _cached(('live', hashlib.sha256(token.encode()).hexdigest()), 20, fetch)

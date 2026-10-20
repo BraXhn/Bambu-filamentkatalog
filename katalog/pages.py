@@ -37,7 +37,7 @@ def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=Non
     nav = ''
     if user:
         items = [('/', 'Katalog', 'katalog'), ('/onskelista', 'Önskelista', 'onske'), ('/inkopslista', 'Inköpslista', 'inkop'),
-                 ('/kostnad', 'Kostnad', 'kostnad'), ('/konto', 'Mitt konto', 'konto')]
+                 ('/kostnad', 'Kostnad', 'kostnad'), ('/utskrifter', 'Utskrifter', 'utskrifter'), ('/konto', 'Mitt konto', 'konto')]
         if user['is_admin']:
             items.append(('/admin', 'Administration', 'admin'))
         links = ''.join(f'<a href="{h}"{" aria-current=page" if k == active else ""}>{t}</a>' for h, t, k in items)
@@ -165,7 +165,7 @@ def source_alerts(runs):
     return [(label[k], n, err[k]) for k, n in streak.items() if n >= ALERT_RUNS]
 
 
-def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', secret=None):
+def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', secret=None, backups=None):
     running = any(r['status'] == 'running' for r in runs)
     last_done = next((r for r in runs if r['status'] != 'running'), None)
     secret_html = ''
@@ -238,9 +238,9 @@ def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', s
     backup = f"""<section class="card" id="sakerhetskopia"><h2>Säkerhetskopia</h2>
 <p class="sub">Laddar ner databasen (användare, markeringar, inköpslistor, Bambu-kopplingar) och prishistoriken som en zip-fil.
 Filen innehåller lösenordshashar och inloggningar till Bambu Lab – förvara den säkert.
-Återställ genom att stoppa containern, packa upp filen i datamappen och starta igen.</p>
+Återställ med knappen nedan (lägg en nedladdad kopia i <code>/data/backups</code> först), eller stoppa containern och packa upp filen i datamappen.</p>
 <form method="post" action="/admin/sakerhetskopia"><input type="hidden" name="csrf" value="{e(csrf)}">
-<button class="btn ghost" type="submit">Ladda ner säkerhetskopia</button></form></section>"""
+<button class="btn ghost" type="submit">Ladda ner säkerhetskopia</button></form>{backups_html(csrf, backups or [], config.BACKUP_TIME, config.BACKUP_KEEP)}</section>"""
 
     body = f"""<h1>Administration</h1><p class="lead">Användare, prisuppdatering och säkerhetskopia.</p>
 {message(msg_kind, e(msg))}{secret_html}{prices}{users_html}{backup}"""
@@ -481,12 +481,12 @@ def _print_button():
 def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg='', budget=None, waiting=(),
                   full=None, shared=False, share_url=None, purchases=()):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
-    history_html = _purchases_html(purchases, names)
+    history_html = _purchases_html(purchases, names, csrf)
     if not items:
         body = f"""<h1>Inköpslista</h1><p class="lead">Lägg till filament med knappen <b>+ Inköpslista</b> på korten i katalogen.
 Här ser du sedan var varje filament är billigast att köpa och vad allt kostar.</p>{message(msg_kind, e(msg))}
 <p><a class="btn" href="/">Till katalogen</a></p>{history_html}"""
-        return layout('Inköpslista', body, user, csrf, 'inkop')
+        return layout('Inköpslista', body, user, csrf, 'inkop', scripts=('/assets/receipt.js',))
     full = full or plan
     pending = not full.get('complete', True)
     pending_html = ('<div class="msg warn no-print" role="status">Listan är stor, så planen räknas fortfarande fram i bakgrunden. '
@@ -541,7 +541,7 @@ Med en budget visas vad du kan köpa nu och vad som kan vänta.</p>
         if plan['totals']['units'] or plan['missing'] else ''
     body = (f'<h1>Inköpslista</h1><p class="lead">Var du bör köpa varje filament och vad det kostar totalt.</p>'
             f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{share_html}{history_html}')
-    return layout('Inköpslista', body, user, csrf, 'inkop', refresh=8 if pending else None, scripts=('/assets/print.js',))
+    return layout('Inköpslista', body, user, csrf, 'inkop', refresh=8 if pending else None, scripts=('/assets/print.js', '/assets/receipt.js'))
 
 
 def shared_list(owner, plan, checked_at):
@@ -553,19 +553,34 @@ def shared_list(owner, plan, checked_at):
     return layout('Delad inköpslista', body, scripts=('/assets/print.js',))
 
 
-def _purchases_html(purchases, names):
+def _purchases_html(purchases, names, csrf=''):
+    """Köphistorik grupperad per köp (tid + butik), med kvitto per köp."""
     if not purchases:
         return ''
     year = datetime.datetime.now(TZ).year
     spent = sum(p['qty'] * p['unit_price'] for p in purchases
                 if datetime.datetime.fromtimestamp(p['ts'], TZ).year == year)
-    rows = ''.join(
-        f'<tr><td>{fmt_time(p["ts"])[:10]}</td><td>{e(p["shop"])}</td>'
-        f'<td><b>{e(p["key"].split("|")[0])} · {e(names.get(p["key"], p["key"].split("|")[-1]))}</b>'
-        f'<span class="muted" style="font-size:12px"> {e(p["pack"] or "")}</span></td>'
-        f'<td class="right">{p["qty"]} × {_kr(p["unit_price"])}</td></tr>' for p in purchases)
-    return (f'<section class="card no-print"><details><summary><b>Köphistorik</b> · {_kr(spent)} på filament i år (utan frakt)</summary>'
-            f'<div class="tablewrap mt"><table><thead><tr><th>Datum</th><th>Butik</th><th>Filament</th><th class="right">Antal</th></tr></thead>'
+    groups = {}
+    for p in purchases:
+        groups.setdefault((p['ts'], p['shop']), []).append(p)
+    rows = ''
+    for (ts, shop), ps in groups.items():
+        first = ps[0]
+        items = '<br>'.join(f'<b>{e(p["key"].split("|")[0])} · {e(names.get(p["key"], p["key"].split("|")[-1]))}</b>'
+                            f'<span class="muted" style="font-size:12px"> {e(p["pack"] or "")} · {p["qty"]} × {_kr(p["unit_price"])}</span>'
+                            for p in ps)
+        if first['receipt']:
+            receipt = (f'<a href="/kvitto/{first["id"]}" target="_blank" rel="noopener">📎 Visa kvitto</a>'
+                       f'<form method="post" action="/kvitto/{first["id"]}/ta-bort" style="display:inline;margin-left:8px">'
+                       f'<input type="hidden" name="csrf" value="{e(csrf)}"><button class="btn danger small" type="submit">Ta bort</button></form>')
+        else:
+            receipt = (f'<label class="btn ghost small receipt-upload">📎 Lägg till kvitto<input type="file" accept="image/*,application/pdf" '
+                       f'data-receipt="{first["id"]}" hidden></label><span class="muted receipt-status" style="font-size:12px"></span>')
+        rows += (f'<tr><td>{fmt_time(ts)[:10]}</td><td>{e(shop)}</td><td>{items}</td>'
+                 f'<td class="right">{_kr(sum(p["qty"] * p["unit_price"] for p in ps))}</td><td class="right">{receipt}</td></tr>')
+    return (f'<section class="card no-print" id="kophistorik"><details><summary><b>Köphistorik</b> · {_kr(spent)} på filament i år (utan frakt)</summary>'
+            f'<p class="sub mt">Fotografera eller ladda upp kvittot för garanti och reklamationer. Bilder förminskas i webbläsaren innan de sparas.</p>'
+            f'<div class="tablewrap"><table><thead><tr><th>Datum</th><th>Butik</th><th>Filament</th><th class="right">Summa</th><th class="right">Kvitto</th></tr></thead>'
             f'<tbody>{rows}</tbody></table></div></details></section>')
 
 
@@ -679,7 +694,7 @@ def _price_chart(intervals, res):
             f'<table><tbody>{rows}</tbody></table></div></details>')
 
 
-def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_kind='', msg=''):
+def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_kind='', msg='', live=None):
     from . import costcalc, energy
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     by_type = {}
@@ -702,7 +717,8 @@ def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_k
         for i, (k, g) in enumerate(form['rows'], 1) if i > 4)
     more_open = any(g for k, g in form['rows'][4:])
     sel = lambda name, options, cur: ''.join(f'<option value="{e(v)}"{" selected" if v == cur else ""}>{e(t)}</option>' for v, t in options)  # noqa: E731
-    printers = ''.join(f'<option value="{w}" data-watts="{w}">{e(n)} · ca {w} W</option>' for _, n, w in costcalc.PRINTERS)
+    printers = ''.join(f'<option value="{e(pid)}" data-watts="{w}"{" selected" if pid == form.get("printer") else ""}>{e(n)} · ca {w} W</option>'
+                       for pid, n, w in costcalc.PRINTERS)
     sources = [(v, t + ('' if v != 'tibber' or has_tibber else ' – koppla nedan')) for v, t in costcalc.SOURCES.items()]
     form_html = f"""<form method="post" action="/kostnad/rakna" id="costForm">{h}
 <section class="card"><h2>Utskriften</h2>
@@ -716,7 +732,7 @@ def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_k
 <div class="field" style="max-width:240px"><label for="cs">Starttid</label><input id="cs" name="start" type="datetime-local" value="{e(form['start'])}"></div></div>
 <p class="muted" style="font-size:12px;margin:6px 0 0">Lämna starttiden tom för att starta nu.</p></section>
 <section class="card"><h2>Skrivare och el</h2>
-<div class="row"><div class="field"><label for="cp">Skrivare</label><select id="cp" class="cost-printer"><option value="">Välj för att fylla i effekt…</option>{printers}</select></div>
+<div class="row"><div class="field"><label for="cp">Skrivare</label><select id="cp" name="printer" class="cost-printer"><option value="">Välj för att fylla i effekt…</option>{printers}</select></div>
 <div class="field" style="max-width:160px"><label for="cw">Medeleffekt (W)</label><input id="cw" name="w" type="text" inputmode="numeric" maxlength="5" value="{e(form['watts'])}"></div></div>
 <p class="muted" style="font-size:12px;margin:8px 0 14px">Ungefärlig medeleffekt med PLA. Varm bädd (ABS/ASA, kammare) drar mer – mät gärna med en energimätare för exakt värde.</p>
 <div class="row"><div class="field"><label for="csrc">Elpris från</label><select id="csrc" name="src">{sel('src', sources, form['source'])}</select></div>
@@ -732,7 +748,17 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
 <div class="field" style="max-width:220px"><label for="cwear">Slitage (kr/timme)</label><input id="cwear" name="wear" type="text" inputmode="decimal" maxlength="6" value="{e(form['wear'])}" placeholder="valfritt"></div></div>
 <p class="muted" style="font-size:12px;margin:8px 0 0">Eget pris används för rader utan färg och när katalogen saknar pris. Slitage: t.ex. munstycke, PEI-platta och avskrivning per drifttimme.</p></section>
 <div class="row" style="margin-bottom:22px"><button class="btn" type="submit" name="do" value="rakna">Räkna ut</button>
-<button class="btn ghost" type="submit" name="do" value="spara">Räkna ut och spara som standard</button></div></form>"""
+<button class="btn ghost" type="submit" name="do" value="spara">Räkna ut och spara som standard</button></div>
+<section class="card"><h2>Spara eller sälj</h2>
+<div class="row"><div class="field"><label for="cname">Namn på utskriften</label><input id="cname" name="name" type="text" maxlength="120" value="{e(form.get('name', ''))}" placeholder="t.ex. Hylla till verkstan"></div>
+<div><button class="btn ghost" type="submit" name="do" value="logga">Spara i utskriftsloggen</button></div></div>
+<h3 class="mt" style="margin-top:22px">Offert</h3><p class="sub">Självkostnad plus marginal för misslyckade utskrifter och påslag – för utskrifter du säljer.</p>
+<div class="row"><div class="field"><label for="qcust">Kund / beskrivning</label><input id="qcust" name="customer" type="text" maxlength="120" value="{e(form.get('customer', ''))}"></div>
+<div class="field" style="max-width:140px"><label for="qmark">Påslag (%)</label><input id="qmark" name="markup" type="text" inputmode="decimal" maxlength="5" value="{e(form.get('markup') or '50')}"></div>
+<div class="field" style="max-width:170px"><label for="qfail">Misslyckanden (%)</label><input id="qfail" name="fail" type="text" inputmode="decimal" maxlength="5" value="{e(form.get('fail') or '10')}"></div>
+<div class="field" style="max-width:170px"><label for="qvat">Moms</label><select id="qvat" name="qvat">{sel('qvat', [('0', 'Utan moms'), ('1', 'Lägg på 25 %')], form.get('qvat', '0'))}</select></div>
+<div class="field" style="max-width:150px"><label for="qrnd">Avrunda till</label><select id="qrnd" name="rnd">{sel('rnd', [('1', '1 kr'), ('5', '5 kr'), ('10', '10 kr')], form.get('rnd', '1'))}</select></div></div>
+<div class="mt"><button class="btn ghost" type="submit" name="do" value="offert">Skapa offert</button></div></section></form>"""
 
     result = ''
     if errors:
@@ -776,6 +802,25 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
         elif cheap or covered:
             result += f'<section class="card">{cheap}{covered}</section>'
 
+    now_html = ''
+    if live or has_tibber:
+        parts = []
+        if live:
+            parts.append(f'<div class="stat"><span>Elpris just nu</span><strong>{_num(live["now"])} kr/kWh</strong></div>')
+            if live['low']:
+                parts.append(f'<div class="stat"><span>Lägst närmaste 12 h</span><strong>{_num(live["low"][1])} kr/kWh</strong>'
+                             f'<span>{_day_time(live["low"][0], live["at"])}</span></div>')
+        if has_tibber:
+            parts.append('<div class="stat" id="livePower" hidden><span>Hemmet drar nu (Tibber Pulse)</span><strong>–</strong><span></span></div>')
+        advice = ''
+        if live and live['drop']:
+            t, p = live['drop']
+            mins = max(1, round((t - live['at']).total_seconds() / 60))
+            advice = message('warn', f'⏳ Vänta med att starta? Elpriset sjunker {_day_time(t, live["at"])} (om {mins} min) till '
+                                     f'{_num(p)} kr/kWh, {_num(100 * (1 - p / live["now"]), 0)} % billigare än nu.')
+        elif live:
+            advice = message('ok', 'Elpriset sjunker inte nämnvärt de närmaste timmarna – bra läge att starta nu.')
+        now_html = f'<section class="card" id="justnu"><h2>Just nu</h2><div class="stats">{"".join(parts)}</div>{advice}</section>'
     tibber = f"""<section class="card" id="tibber"><h2>Tibber</h2>
 <p class="sub">{'Tibber är kopplat. Tokenet visas aldrig igen; ta bort och klistra in ett nytt för att byta.' if has_tibber else
 'Hämta ditt eget elpris från Tibber: logga in på <a href="https://developer.tibber.com" target="_blank" rel="noopener">developer.tibber.com</a>, '
@@ -785,5 +830,97 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
 {'<div><button class="btn danger small" type="submit" name="do" value="ta-bort">Ta bort Tibber-kopplingen</button></div>' if has_tibber else ''}</form></section>"""
     body = (f'<h1>Kostnadsräknare</h1><p class="lead">Vad kostar en utskrift? Filament efter katalogens priser eller vad du betalat, '
             f'och el efter timpriset under utskriften – med förslag på billigaste starttid.</p>{message(msg_kind, e(msg))}'
-            f'{result}{form_html}{tibber}')
+            f'{now_html}{result}{form_html}{tibber}')
     return layout('Kostnadsräknare', body, user, csrf, 'kostnad', scripts=('/assets/cost.js',))
+
+
+# ---------- utskriftslogg och offert ----------
+PRINT_STATUS = {'ok': '', 'failed': '<span class="badge bad">Misslyckad</span>', 'cancelled': '<span class="badge warn">Avbruten</span>'}
+
+
+def prints_page(user, csrf, prints, stats, forecast, names, has_bambu, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    label = lambda k: f'{e(k.split("|")[0])} · {e(names.get(k, k.split("|")[-1]))}' if k else 'Annan färg'  # noqa: E731
+    y = stats['year']
+    fetch = (f'<form method="post" action="/utskrifter/hamta" class="no-print" style="margin-bottom:18px">{h}'
+             f'<button class="btn ghost" type="submit">Hämta utskrifter från Bambu Lab</button> '
+             f'<span class="muted" style="font-size:13px">Hämtas även automatiskt vid varje Bambu-synk.</span></form>') if has_bambu else \
+        '<p class="sub">Koppla ditt Bambu Lab-konto under <a href="/konto">Mitt konto</a>, så hämtas dina utskrifter automatiskt.</p>'
+    if not prints:
+        body = (f'<h1>Utskrifter</h1><p class="lead">Logg över dina utskrifter med kostnad för filament och el.</p>{message(msg_kind, e(msg))}'
+                f'{fetch}<p>Inga utskrifter än. Spara en från <a href="/kostnad">kostnadsräknaren</a>.</p>')
+        return layout('Utskrifter', body, user, csrf, 'utskrifter')
+    summary = f"""<section class="card"><h2>I år</h2><div class="stats">
+<div class="stat"><span>Utskrifter</span><strong>{y['n']}</strong>{f'<span>{y["failed"]} misslyckade/avbrutna</span>' if y['failed'] else ''}</div>
+<div class="stat"><span>Filament</span><strong>{_num(y['grams'] / 1000, 2)} kg</strong></div>
+<div class="stat"><span>Kostnad totalt</span><strong>{_num(y['total'], 0 if y['total'] >= 100 else 2)} kr</strong></div>
+<div class="stat"><span>varav el</span><strong>{_num(y['el'], 0 if y['el'] >= 100 else 2)} kr</strong></div></div></section>"""
+    months = ''.join(f'<tr><td>{e(m)}</td><td class="right">{v["n"]}</td><td class="right">{_num(v["grams"], 0)} g</td>'
+                     f'<td class="right">{_num(v["total"])} kr</td></tr>' for m, v in stats['months'].items())
+    colors = ''.join(
+        f'<tr><td><b>{label(k)}</b></td><td class="right">{_num(v["grams"], 0)} g</td><td class="right">{_num(v["cost"])} kr</td>'
+        f'<td class="right">{(_num(forecast[k]["perDay"], 1) + " g/dag") if k in forecast else "—"}</td>'
+        f'<td class="right">{("ca " + str(forecast[k]["days"]) + " dagar") if forecast.get(k, {}).get("days") is not None else "—"}</td></tr>'
+        for k, v in sorted(stats['colors'].items(), key=lambda kv: -kv[1]['grams']))
+    printers = ''.join(f'<tr><td>{e(p)}</td><td class="right">{v["n"]}</td><td class="right">{_num(v["hours"], 1)} h</td>'
+                       f'<td class="right">{_num(v["kwh"], 1)} kWh</td><td class="right">{_num(v["total"])} kr</td></tr>'
+                       for p, v in stats['printers'].items())
+    rows = ''
+    for r in prints:
+        grams = json.loads(r['grams'] or '{}')
+        rows += (f'<tr><td>{fmt_time(r["ts"])}</td><td><b>{e(r["name"])}</b> {PRINT_STATUS.get(r["status"], "")}'
+                 f'<br><span class="muted" style="font-size:12px">{" · ".join(f"{label(k)} {_num(g, 1)} g" for k, g in grams.items())}'
+                 f'{" · " + e(r["printer"]) if r["printer"] else ""}{" · från Bambu Lab" if r["source"] == "bambu" else ""}</span></td>'
+                 f'<td class="right hide-sm">{_hm(r["hours"])}</td><td class="right">{_num(r["total"])} kr'
+                 f'<br><span class="muted" style="font-size:12px">el {_num(r["el"])} kr</span></td>'
+                 f'<td class="right"><form method="post" action="/utskrifter/{r["id"]}/ta-bort">{h}'
+                 f'<button class="btn danger small" type="submit" aria-label="Ta bort {e(r["name"])}">Ta bort</button></form></td></tr>')
+    body = f"""<h1>Utskrifter</h1><p class="lead">Logg över dina utskrifter med kostnad för filament och el, och hur länge filamentet räcker.</p>
+{message(msg_kind, e(msg))}{fetch}{summary}
+<section class="card"><h2>Förbrukning per färg</h2><p class="sub">Prognosen bygger på de senaste {60} dagarnas utskrifter och vad som finns kvar enligt ditt Bambu-bibliotek.</p>
+<div class="tablewrap"><table><thead><tr><th>Färg</th><th class="right">Totalt</th><th class="right">Kostnad</th><th class="right">Takt</th><th class="right">Räcker</th></tr></thead><tbody>{colors}</tbody></table></div></section>
+<section class="card"><h2>Per månad</h2><div class="tablewrap"><table><thead><tr><th>Månad</th><th class="right">Utskrifter</th><th class="right">Filament</th><th class="right">Kostnad</th></tr></thead><tbody>{months}</tbody></table></div>
+<h2 class="mt" style="margin-top:22px">Per skrivare</h2><div class="tablewrap"><table><thead><tr><th>Skrivare</th><th class="right">Utskrifter</th><th class="right">Tid</th><th class="right">El</th><th class="right">Kostnad</th></tr></thead><tbody>{printers}</tbody></table></div></section>
+<section class="card"><h2>Alla utskrifter</h2><div class="tablewrap"><table><thead><tr><th>Start</th><th>Utskrift</th><th class="right hide-sm">Tid</th><th class="right">Kostnad</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
+<p class="muted" style="font-size:12px;margin:12px 0 0">Utskrifter från Bambu Lab räknas med dina standardvärden i kostnadsräknaren och spotpriset för dagen (Tibbers historiska priser hämtas inte).</p></section>"""
+    return layout('Utskrifter', body, user, csrf, 'utskrifter')
+
+
+def quote_page(user, csrf, form, res, q, names):
+    lines = ''.join(
+        f'<tr><td>{(e(l["key"].split("|")[0]) + " · " + e(names.get(l["key"], ""))) if l["key"] else "Annat filament"}</td>'
+        f'<td class="right">{_num(l["grams"], 1)} g</td></tr>' for l in res['lines'])
+    vat_row = f'<tr><td>Moms 25 %</td><td class="right">{_num(q["vat"])} kr</td></tr>' if q['vat'] else ''
+    today = datetime.datetime.now(TZ).strftime('%Y-%m-%d')
+    body = f"""<p class="no-print"><a href="/kostnad">← Tillbaka till kostnadsräknaren</a> <button class="btn ghost small" type="button" data-print>Skriv ut / spara som PDF</button></p>
+<section class="card quote"><div class="row" style="justify-content:space-between;align-items:baseline"><h1 style="margin:0">Offert</h1><span class="muted">{today}</span></div>
+{f'<p class="lead" style="margin:8px 0 18px">{e(form.get("customer"))}</p>' if form.get('customer') else ''}
+<p><b>{e(form.get('name') or '3D-utskrift')}</b> · {_hm(res['hours'])} utskriftstid · {_num(res['grams'], 1)} g filament</p>
+<div class="tablewrap"><table><tbody>{lines}</tbody></table></div>
+<div class="tablewrap mt"><table><tbody>
+<tr><td>Material, el och slitage</td><td class="right">{_num(q['cost'])} kr</td></tr>
+{f'<tr><td>Marginal för misslyckade utskrifter ({_num(q["fail_pct"], 0)} %)</td><td class="right">{_num(q["risk"])} kr</td></tr>' if q['risk'] else ''}
+{f'<tr><td>Arbete och påslag ({_num(q["markup_pct"], 0)} %)</td><td class="right">{_num(q["markup"])} kr</td></tr>' if q['markup'] else ''}
+<tr><td>Summa{' exkl. moms' if q['vat'] else ''}</td><td class="right">{_num(q['ex_vat'])} kr</td></tr>{vat_row}
+<tr><td><b>Att betala{' inkl. moms' if q['vat'] else ''}</b></td><td class="right"><b style="font-size:20px">{_num(q['rounded'], 0)} kr</b></td></tr>
+</tbody></table></div>
+<p class="muted" style="font-size:12px;margin-top:14px">Självkostnaden bygger på aktuella filament- och elpriser. {'Priset är avrundat uppåt till hela ' + str(q['rounding']) + ' kr.' if q['rounding'] > 1 else ''}</p></section>"""
+    return layout('Offert', body, user, csrf, 'kostnad', scripts=('/assets/print.js',))
+
+
+def backups_html(csrf, backups, backup_time, keep):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    rows = ''.join(
+        f'<tr><td>{fmt_time(b["mtime"])}</td><td class="hide-sm">{e(b["name"])}</td><td class="right">{_num(b["size"] / 1024, 0)} kB</td>'
+        f'<td class="right"><div class="actions"><a class="btn ghost small" href="/admin/sakerhetskopior/{e(b["name"])}">Ladda ner</a>'
+        f'<form method="post" action="/admin/sakerhetskopior/{e(b["name"])}/aterstall" class="row" style="gap:6px">{h}'
+        f'<input name="confirm" type="text" placeholder="Skriv ÅTERSTÄLL" aria-label="Bekräfta återställning" style="width:150px;padding:7px">'
+        f'<button class="btn danger small" type="submit">Återställ</button></form></div></td></tr>' for b in backups)
+    sched = (f'Görs automatiskt varje natt kl. {e(backup_time)}; de {keep} senaste sparas i <code>/data/backups</code>.'
+             if backup_time else 'Automatiska säkerhetskopior är avstängda (BACKUP_TIME).')
+    return (f'<h3 class="mt" style="margin-top:22px">Sparade säkerhetskopior</h3><p class="sub">{sched} '
+            f'Återställning ersätter alla användare, listor och inställningar med kopians innehåll – nuvarande läge sparas först som en ny kopia. '
+            f'Alla blir utloggade.</p>'
+            f'<form method="post" action="/admin/sakerhetskopior/ny" style="margin-bottom:12px">{h}<button class="btn ghost small" type="submit">Säkerhetskopiera nu</button></form>'
+            + (f'<div class="tablewrap"><table><thead><tr><th>Skapad</th><th class="hide-sm">Fil</th><th class="right">Storlek</th><th></th></tr></thead>'
+               f'<tbody>{rows}</tbody></table></div>' if rows else '<p class="muted">Inga sparade kopior än.</p>'))
