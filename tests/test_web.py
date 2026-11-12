@@ -106,6 +106,100 @@ class WebFlow(unittest.TestCase):
         ok(s==200 and c['added']==1 and {i['key']:i['qty'] for i in c['items']}=={'PLA Basic|10101':2,'PLA Basic|10100':1},'lägg flera i listan, befintliga orörda: %s'%b)
         s,h,b=req(a,'/api/history?key=PLA%20Basic%7C10101'); ok(s==200 and json.loads(b)['series']==[],'prishistorik utan data')
         s,h,b=req(a,'/api/history?key=x'); ok(s==400,'prishistorik för okänd färg nekas')
+        # prisbevakning på önskelistan
+        s,h,b=req(a,'/onskelista'); t8=csrf(b); ok(s==200 and 'Bevakning' in b and 'ntfy' in b,'önskelistesidan visas')
+        s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'100000','discount':''}); ok(s==303,'spara målpris')
+        s,h,b=req(a,'/onskelista'); ok('Ditt pris är nått' in b,'träff visas när målpriset nås')
+        s,h,b=req(a,'/api/wish'); ok(json.loads(b)['hits']==['PLA Basic|10101'],'träffen finns i api/wish')
+        s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'abc'}); ok(s==400,'ogiltigt målpris nekas')
+        s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10100','target':'200'}); ok(s==400,'bevakning kräver att färgen är på önskelistan')
+        s,h,b=req(a,'/onskelista/avisering',{'csrf':t8,'target':'https://evil.example/x','do':'spara'}); ok(s==400,'avisering till otillåten värd nekas')
+        s,h,b=req(a,'/onskelista/avisering',{'csrf':t8,'target':'filament-test-123','do':'spara'}); ok(s==200 and 'https://ntfy.sh/filament-test-123' in b,'ntfy-ämne sparas')
+        # köpt här
+        s,h,b=req(a,'/inkopslista'); t9=csrf(b); shop=re.search(r'name="shop" value="([^"]+)"',b)
+        ok(shop is not None,'köpt-knapp per butik')
+        if shop:
+            import html as _h
+            s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':_h.unescape(shop.group(1))}); ok(s==200 and 'Markerat som köpt' in b and 'Köphistorik' in b,'markera som köpt: %s'%s)
+            s,h,b=req(a,'/inkopslista/kopt',{'csrf':t9,'shop':'Finns inte'}); ok(s==409,'okänd butik ger 409')
+        req(a,'/api/cart',json.dumps({'key':'PLA Basic|10101','qty':1}).encode(),'PUT',J)
+        # kvitto på köpet
+        s,h,b=req(a,'/inkopslista'); pid=re.search(r'data-receipt="(\d+)"',b); ok(pid is not None,'kvitto kan läggas till på köpet')
+        if pid:
+            png=b'\x89PNG\r\n\x1a\n'+b'0'*100
+            s,h,b=req(a,'/api/receipt/'+pid.group(1),png,'PUT',{'Content-Type':'image/png','X-CSRF-Token':me['csrf']}); ok(s==200,'ladda upp kvitto: %s'%b)
+            s,h,b=req(a,'/api/receipt/'+pid.group(1),b'<html>','PUT',{'Content-Type':'image/png','X-CSRF-Token':me['csrf']}); ok(s==415,'fel filinnehåll nekas')
+            s,h,b=req(a,'/api/receipt/'+pid.group(1),png,'PUT',{'Content-Type':'text/html','X-CSRF-Token':me['csrf']}); ok(s==415,'fel filtyp nekas')
+            r=urllib.request.Request(B+'/kvitto/'+pid.group(1),headers={'Host':f'127.0.0.1:{self.port}'})
+            with a.open(r) as x: ok(x.read()==png and x.headers['Content-Type']=='image/png','visa kvitto')
+            s,h,b=req(client()[0],'/kvitto/'+pid.group(1)); ok(s in (303,404),'kvitto kräver inloggning')
+        # kostnadsräknare (fast elpris: inga nätanrop)
+        s,h,b=req(a,'/kostnad'); t10=csrf(b); ok(s==200 and 'Kostnadsräknare' in b and 'cost.js' in b,'kostnadsräknaren visas')
+        f={'csrf':t10,'k1':'PLA Basic|10101','g1':'50','k2':'','g2':'10','h':'2','m':'30','w':'100','src':'fast','fixed':'2','extra':'0,6',
+           'mode':'eget','kg':'200','wear':'','area':'SE3','vat':'1','do':'rakna'}
+        s,h,b=req(a,'/kostnad/rakna',f); ok(s==200 and 'Kostnad för utskriften' in b and '12,65 kr' in b,'kostnad räknas ut (12 kr filament + 0,65 kr el)')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='spara',w='150')); ok(s==200 and 'sparade som standard' in b,'spara standardvärden')
+        s,h,b=req(a,'/kostnad'); ok('value="150"' in b,'sparad effekt används som standard')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,g1='abc')); ok('måste vara ett tal' in b,'ogiltigt tal visas som fel')
+        s,h,b=req(a,'/kostnad/rakna',{**f,'csrf':'fel'}); ok(s==403,'kostnadsberäkning kräver csrf')
+        s,h,b=req(a,'/kostnad/tibber',{'csrf':t10,'token':'kort','do':'spara'}); ok(s==400,'ogiltigt Tibber-token nekas')
+        os.makedirs(D+'/state',exist_ok=True); open(D+'/state/bambu_color_codes.json','w').write('[]')
+        s,h,b=req(a,'/api/match',json.dumps({'items':[{'id':'GFA00','type':'PLA Basic','color':'#000000'}]}).encode(),'PUT',J); ok(s==200 and 'keys' in json.loads(b),'matcha slicerns filament: %s'%b)
+        # utskriftslogg och offert från kostnadsräknaren
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='logga',name='Testbit')); ok(s==303,'spara utskrift i loggen')
+        s,h,b=req(a,'/utskrifter'); ok(s==200 and 'Testbit' in b and 'Förbrukning per färg' in b,'utskriftsloggen visar utskriften')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='offert',markup='50',fail='10',qvat='1',rnd='10',customer='Kalle')); ok(s==200 and 'Att betala' in b and 'Kalle' in b,'offert skapas')
+        s,h,b=req(a,'/kostnad/rakna',dict(f,do='offert',markup='abc')); ok(s==400,'ogiltigt påslag nekas')
+        # säkerhetskopior
+        s,h,b=req(a,'/admin'); t11=csrf(b)
+        s,h,b=req(a,'/admin/sakerhetskopior/ny',{'csrf':t11}); name=re.search(r'(katalog-\d{8}-\d{4}\.zip)',b); ok(s==200 and name,'säkerhetskopiera nu')
+        if name:
+            s,h,b=req(a,'/admin/sakerhetskopior/'+name.group(1)+'/aterstall',{'csrf':t11,'confirm':'nej'}); ok(s==400,'återställning kräver bekräftelse')
+            r=urllib.request.Request(B+'/admin/sakerhetskopior/'+name.group(1),headers={'Host':f'127.0.0.1:{self.port}'})
+            with a.open(r) as x: ok(x.read()[:2]==b'PK','ladda ner sparad säkerhetskopia')
+        s,h,b=req(a,'/admin/sakerhetskopior/..%2Fkatalog.db'); ok(s==404,'ingen sökvägsflykt för säkerhetskopior')
+        # nya färger
+        s,h,b=req(a,'/api/new'); n=json.loads(b); ok(s==200 and set(n)>={'recent','upcoming','missing','days'},'api/new: %s'%b[:200])
+        s,h,b=req(a,'/onskelista'); t12=csrf(b)
+        s,h,b=req(a,'/onskelista/nyheter',{'csrf':t12,'on':'1'}); ok(s==200 and 'Sluta avisera om nya färger' in b,'slå på avisering om nya färger')
+        s,h,b=req(a,'/onskelista/nyheter',{'csrf':t12,'on':'0'}); ok('Avisera om nya färger' in b,'slå av avisering om nya färger')
+        # skrivare
+        s,h,b=req(a,'/skrivare'); t13=csrf(b); ok(s==200 and 'Lägg till skrivare lokalt' in b,'skrivarsidan visas')
+        s,h,b=req(a,'/skrivare/ny',{'csrf':t13,'name':'X','serial':'ABC123456','host':'8.8.8.8','code':'12345678'}); ok(s==400 and 'lokala nätet' in b,'skrivare utanför lokala nätet nekas')
+        s,h,b=req(a,'/skrivare/ny',{'csrf':t13,'name':'Verkstan','serial':'ABC123456','host':'192.168.77.9','code':'12345678'}); ok(s==200 and 'Verkstan' in b and '12345678' not in b,'lägg till lokal skrivare (koden visas inte)')
+        s,h,b=req(a,'/skrivare/kort'); ok(s==200 and 'Verkstan' in b,'statuskort för skrivare')
+        s,h,b=req(a,'/api/printers'); ok(s==200 and json.loads(b)['printers'][0]['name']=='Verkstan','skrivare i api')
+        pid=json.loads(b)['printers'][0]['id']
+        s,h,b=req(a,f'/skrivare/{pid}/ta-bort',{'csrf':t13}); ok(s==200 and 'borttagen' in b,'ta bort skrivare')
+        # projekt
+        s,h,b=req(a,'/projekt'); t14=csrf(b)
+        s,h,b=req(a,'/projekt/ny',{'csrf':t14,'name':'Hylla','customer':'Kalle'}); ok(s==303,'skapa projekt'); purl=h.get('Location','')
+        s,h,b=req(a,purl+'/farg',{'csrf':t14,'key':'PLA Basic|10300'}); ok(s==303,'lägg färg i projekt')
+        s,h,b=req(a,purl); ok(s==200 and 'Orange' in b and 'Saknas' in b,'projektets palett visas')
+        s,h,b=req(a,purl+'/saknade',{'csrf':t14}); ok('saknade färger lagda' in b,'saknade färger till inköpslistan')
+        s,h,b=req(a,purl+'.csv'); ok(s==200 and h.get('Content-Type','').startswith('text/csv'),'projekt som CSV')
+        # API-nycklar och svar för genvägar
+        s,h,b=req(a,'/konto'); t15=csrf(b); ok('Genvägar och röstassistenter' in b and 'Exportera som JSON' in b,'kontosidan har API-nycklar och export')
+        s,h,b=req(a,'/konto/api-nyckel',{'csrf':t15,'name':'iPhone'}); key=re.search(r'value="(kat_[^"]+)"',b); ok(key,'skapa API-nyckel')
+        if key:
+            anon2,_=client()
+            s,h,b=req(anon2,'/api/v1/sammanfattning',headers={'Authorization':'Bearer '+key.group(1)}); ok(s==200 and 'Inköpslistan har' in b,'svar med API-nyckel: %s'%b)
+            s,h,b=req(anon2,'/api/v1/filament?q=svart&format=json',headers={'Authorization':'Bearer '+key.group(1)}); ok(s==200 and 'svar' in json.loads(b),'filamentfråga som json')
+            s,h,b=req(anon2,'/api/v1/elpris',headers={'Authorization':'Bearer kat_'+'x'*43}); ok(s==401,'fel API-nyckel nekas')
+            s,h,b=req(anon2,'/api/owned',headers={'Authorization':'Bearer '+key.group(1)}); ok(s==401,'API-nyckel ger inte åtkomst till andra API:er')
+        # export och import
+        s,h,b=req(a,'/konto/export.json'); exp=json.loads(b); ok(s==200 and exp['format']=='bambu-filamentkatalog','exportera JSON')
+        s,h,b=req(a,'/api/import',json.dumps(exp).encode(),'PUT',J); ok(s==200 and 'imported' in json.loads(b),'importera JSON: %s'%b[:200])
+        s,h,b=req(a,'/api/import',b'{"format":"x"}','PUT',J); ok(s==400,'fel format nekas')
+        # samköp och integrationer
+        s,h,b=req(a,'/samkop'); t16=csrf(b); ok(s==200 and 'Vilka är med' in b,'samköpssidan visas')
+        s,h,b=req(a,'/samkop/rakna',{'csrf':t16}); ok(s==200 and 'Fördelning' in b,'räkna ut samköp')
+        s,h,b=req(a,'/admin'); t17=csrf(b); ok('Home Assistant' in b and 'Spoolman' in b,'integrationer på adminsidan')
+        s,h,b=req(a,'/admin/spoolman',{'csrf':t17,'url':'http://8.8.8.8:7912','user_id':'1'}); ok(s==400,'Spoolman utanför lokala nätet nekas')
+        s,h,b=req(a,'/admin/homeassistant',{'csrf':t17,'host':'bad host!','port':'1883'}); ok(s==400,'ogiltig MQTT-adress nekas')
+        # app och offline
+        s,h,b=req(a,'/manifest.webmanifest'); ok(s==200 and json.loads(b)['lang']=='sv','manifest serveras')
+        s,h,b=req(a,'/sw.js'); ok(s==200 and 'caches' in b,'service worker serveras')
         # budget och delning
         s,h,b=req(a,'/inkopslista'); t6=csrf(b); ok(s==200 and 'Dela listan' in b and 'data-print' in b,'inköpslistan har delning och utskrift')
         s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'1','do':'spara'}); ok(s==303,'spara budget')

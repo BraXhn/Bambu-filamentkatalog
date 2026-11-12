@@ -44,7 +44,8 @@ class BambuFlow(unittest.TestCase):
         env = dict(os.environ, KATALOG_DATA_DIR=self.tmp + '/data', 
                    KATALOG_SEED_DIR=R + '/dist', PORT=str(self.port), PRICE_UPDATE_TIME='',
                    BAMBU_SYNC_HOURS='0', ADMIN_USERNAME='anna', ADMIN_PASSWORD='Bla-bil-kor-fort-9',
-                   KATALOG_BAMBU_TEST_BASE=f'http://127.0.0.1:{self.fake_port}')
+                   KATALOG_BAMBU_TEST_BASE=f'http://127.0.0.1:{self.fake_port}',
+                   KATALOG_ELPRIS_TEST_BASE='http://127.0.0.1:9')   # inget elpris: fast pris används, inga nätanrop
         self.app = subprocess.Popen([sys.executable, '-m', 'katalog', 'serve'], cwd=R, env=env,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait(self.fake_port); wait(self.port)
@@ -94,6 +95,13 @@ class BambuFlow(unittest.TestCase):
         self.assertIn('Polymaker PolyTerra PLA', b)     # omatchad spole listas
         self.assertNotIn('<script>', b)                 # ogiltig färg från Bambu escapas/filtreras
         self.assertIn('dagar kvar', b)
+        self.assertIn('2 nya utskrifter hämtade', b)    # utskriftshistoriken hämtas vid synken
+        s, p = self.req('/utskrifter')
+        self.assertIn('Benchy', p); self.assertIn('Misslyckad', p); self.assertIn('från Bambu Lab', p)
+        self.assertIn('PLA Basic · Black 12', p)        # AMS-facket kopplat till katalogfärgen
+        self.assertIn('PLA Basic|10101', self.owned()['forecast'])
+        s, p = self.req('/utskrifter/hamta', {'csrf': t})
+        self.assertIn('Inga nya avslutade utskrifter', p)   # inga dubbletter
         o = self.owned()['bambu']
         self.assertEqual(o['items']['PLA Basic|10101'], {'grams': 1640, 'total': 2000, 'spools': 2})
         self.assertEqual(o['items']['PETG HF|33102']['grams'], 210)
