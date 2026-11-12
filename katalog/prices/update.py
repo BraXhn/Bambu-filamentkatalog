@@ -97,6 +97,16 @@ def run_update(log=print, sources=None):
     unique = {(o['key'], o['url'], o['pack']): o for o in offers}
     offers = list(unique.values())
     deals = apply_history(offers, now)
+    try:   # dagligt lägsta pris per färg (1 kg, ny, fast pris) för säsongsmönster
+        from .. import db
+        best = {}
+        for o in offers:
+            if o.get('kind') == 'fixed' and o.get('weight') == 1000 and o.get('condition') in ('Ny', 'Oanvänt') and \
+                    isinstance(o.get('price'), (int, float)):
+                best[o['key']] = min(best.get(o['key'], 10 ** 9), o['price'])
+        db.save_daily_prices(now[:10], best)
+    except Exception as ex:  # noqa: BLE001
+        log(f'Dagliga priser kunde inte sparas: {ex}')
     log(f'Erbjudanden med rabatt mot ordinarie pris: {deals}')
     write_json_atomic(config.WWW_DIR / 'offers.json', {'checkedAt': now, 'offers': offers})
     config.STATE_DIR.mkdir(parents=True, exist_ok=True)

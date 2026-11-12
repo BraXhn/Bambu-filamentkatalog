@@ -15,7 +15,7 @@ import urllib.parse
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import alerts, backup, bambu, cart, config, costcalc, db, energy, history, pages, printlog, scheduler, security
+from . import alerts, backup, bambu, cart, config, costcalc, db, energy, history, homeassistant, newcolors, pages, printers, printlog, scheduler, security
 from .static import store
 
 COOKIE = 'katalog_sid'
@@ -42,7 +42,8 @@ def _dummy(pw):
 
 
 bambu_attempts = security.RateLimiter(6, 15 * 60)
-print_fetches = security.RateLimiter(6, 15 * 60)       # "Hämta utskrifter" per användare
+print_fetches = security.RateLimiter(6, 15 * 60)
+api_token_attempts = security.RateLimiter(20, 15 * 60)    # felaktiga API-nycklar per IP       # "Hämta utskrifter" per användare
 login_posts = security.RateLimiter(10, 60)          # högst 10 inloggningsförsök per minut och IP
 MAX_CONNECTIONS = 128                                # samtidiga anslutningar totalt (en tråd var)
 MAX_PER_IP = 16                                      # samtidiga anslutningar per klient (ej betrodd proxy)
@@ -55,7 +56,7 @@ CSP = ("default-src 'self'; img-src 'self' https://cdn.shopify.com data:; style-
        "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
        "frame-ancestors 'none'")
 PUBLIC = {'/healthz', '/robots.txt', '/favicon.ico'}
-APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista|delad|onskelista|kostnad|utskrifter|kvitto)(/|$)')
+APP_PATH = re.compile(r'^/(login|setup|logout|konto|admin|api|inkopslista|delad|onskelista|kostnad|utskrifter|kvitto|skrivare|projekt|samkop)(/|$)')
 STARTUP_ERROR = None   # sätts om datamappen inte går att använda; visas då på alla sidor
 
 
@@ -359,6 +360,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def form(self):
         raw = self.read_body(MAX_BODY).decode('utf-8', errors='replace')
+        self._last_form_raw = raw
         return {k: v[0] for k, v in urllib.parse.parse_qs(raw, keep_blank_values=True, max_num_fields=50).items()}
 
     def same_origin(self):
@@ -394,6 +396,22 @@ class Handler(BaseHTTPRequestHandler):
         s = self.session()
         return {'id': s['user_id'], 'username': s['username'], 'is_admin': bool(s['is_admin']),
                 'must_change_pw': bool(s['must_change_pw'])} if s else None
+
+    def api_user(self):
+        """Inloggad via session, eller via personlig API-nyckel (Authorization: Bearer) – bara för läsande API:er."""
+        auth = self.headers.get('Authorization') or ''
+        if auth.startswith('Bearer '):
+            tok = auth[7:].strip()
+            if not re.fullmatch(r'kat_[A-Za-z0-9_-]{20,80}', tok) or api_token_attempts.blocked(self.client_ip):
+                api_token_attempts.hit(self.client_ip)
+                return None
+            row = db.api_token_user(security.token_hash(tok))
+            if not row:
+                api_token_attempts.hit(self.client_ip)
+                return None
+            return {'id': row['id'], 'username': row['username'], 'is_admin': bool(row['is_admin']), 'must_change_pw': False}
+        u = self.user()
+        return u if u and not u['must_change_pw'] else None
 
     def start_session(self, user_row):
         token = security.new_token()
@@ -459,6 +477,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_history()
             if path == '/api/skus':
                 return self.api_skus()
+            if path == '/api/new':
+                return self.api_new()
+            if path.startswith('/api/v1/'):
+                return self.api_v1(path)
+            if path == '/api/printers':
+                return self.api_printers()
             if path == '/api/tibber/live':
                 return self.api_tibber_live()
             m = re.fullmatch(r'/delad/([A-Za-z0-9_-]{20,80})', path)
@@ -474,6 +498,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.redirect('/konto')
             if path == '/konto':
                 return self.get_account()
+            if path in ('/konto/export.json', '/konto/export.zip'):
+                return self.account_export(path.endswith('.zip'))
             if path == '/inkopslista':
                 return self.get_cart()
             if path == '/onskelista':
@@ -482,6 +508,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.get_cost()
             if path == '/utskrifter':
                 return self.get_prints()
+            if path == '/skrivare':
+                return self.get_printers()
+            if path == '/projekt':
+                return self.get_projects()
+            if path == '/samkop':
+                return self.get_groupbuy()
+            m = re.fullmatch(r'/projekt/(\d+)(\.csv)?', path)
+            if m:
+                return self.get_project(int(m.group(1)), csv_export=bool(m.group(2)))
+            if path == '/skrivare/kort':
+                return self.get_printer_cards()
             m = re.fullmatch(r'/kvitto/(\d+)', path)
             if m:
                 return self.get_receipt(int(m.group(1)))
@@ -558,6 +595,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(401, pages.error_page(401, 'Inte inloggad', 'Logga in och försök igen.'))
             if path == '/konto/losenord':
                 return self.post_password()
+            if path == '/konto/api-nyckel' or path.startswith('/konto/api-nyckel/'):
+                return self.api_token_post(path)
             if path == '/konto/logga-ut-andra':
                 return self.post_logout_others()
             if u['must_change_pw']:
@@ -572,6 +611,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.cost_post(path)
             if path.startswith('/utskrifter/'):
                 return self.prints_post(path)
+            if path.startswith('/skrivare/'):
+                return self.printers_post(path)
+            if path.startswith('/projekt/'):
+                return self.projects_post(path)
+            if path.startswith('/samkop/'):
+                return self.groupbuy_post(path)
             if path.startswith('/kvitto/'):
                 return self.receipt_post(path)
             if path.startswith('/admin'):
@@ -602,6 +647,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_prefs_put()
             if p == '/api/match':
                 return self.api_match()
+            if p == '/api/import':
+                return self.api_import()
             m = re.fullmatch(r'/api/receipt/(\d+)', p)
             if m:
                 return self.api_receipt_put(int(m.group(1)))
@@ -757,15 +804,128 @@ class Handler(BaseHTTPRequestHandler):
     def _sessions_count(self, uid):
         return db.conn().execute('SELECT COUNT(*) FROM sessions WHERE user_id=?', (uid,)).fetchone()[0]
 
-    def get_account(self, kind='', msg='', code=200, bkind='', bmsg=''):
+    def get_account(self, kind='', msg='', code=200, bkind='', bmsg='', new_token=None, tkind='', tmsg=''):
         u = self.user()
         csrf = self.session()['csrf']
         section = ''
         if not u['must_change_pw']:
             section = pages.bambu_section(csrf, db.get_bambu(u['id']), db.get_bambu_pending(u['id']),
                                           _catalog_names(), bkind, bmsg)
+            section += pages.api_tokens_section(csrf, db.list_api_tokens(u['id']), new_token, self._base_url(), tkind, tmsg)
+            section += pages.data_section(csrf)
         self.send(code, pages.account(u, csrf, self._sessions_count(u['id']), kind, msg,
                                       must_change=u['must_change_pw'], bambu=section))
+
+    def account_export(self, as_zip):
+        from . import dataio
+        u = self.user()
+        stamp = time.strftime('%Y%m%d')
+        if as_zip:
+            return self.send(200, dataio.export_csv_zip(u, _catalog_names()), 'application/zip',
+                             headers=[('Content-Disposition', f'attachment; filename="filamentkatalog-{stamp}.zip"')])
+        body = json.dumps(dataio.export(u), ensure_ascii=False, indent=1)
+        self.send(200, body, 'application/json; charset=utf-8',
+                  headers=[('Content-Disposition', f'attachment; filename="filamentkatalog-{stamp}.json"')])
+
+    def api_import(self):
+        from . import dataio
+        u, data = self._json_body(4 * 1024 * 1024)
+        if not u:
+            return
+        try:
+            n = dataio.import_data(u['id'], data, _catalog_names())
+        except ValueError as ex:
+            return self.json(400, {'error': str(ex)})
+        self.json(200, {'imported': n})
+
+    def _base_url(self):
+        return config.PUBLIC_URL or f"{'https' if self.browser_https else 'http'}://{self.headers.get('Host') or 'localhost'}"
+
+    def api_token_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        m = re.fullmatch(r'/konto/api-nyckel/(\d+)/ta-bort', path)
+        if m:
+            db.delete_api_token(uid, int(m.group(1)))
+            return self.get_account(tkind='ok', tmsg='API-nyckeln är borttagen och slutar fungera direkt.')
+        if len(db.list_api_tokens(uid)) >= 10:
+            return self.get_account(tkind='err', tmsg='Högst 10 API-nycklar. Ta bort en du inte använder.', code=400)
+        name = f.get('name', '').strip()[:60] or 'API-nyckel'
+        token = 'kat_' + security.new_token()
+        db.create_api_token(uid, name, security.token_hash(token))
+        return self.get_account(new_token=token, tkind='ok', tmsg='Kopiera nyckeln nu – den visas bara en gång.')
+
+    # ---------- svar för genvägar och röstassistenter (API-nyckel eller inloggning) ----------
+    def api_v1(self, path):
+        u = self.api_user()
+        if not u:
+            return self.json(401, {'error': 'Ogiltig eller saknad API-nyckel'})
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        want_json = q.get('format', ['text'])[0] == 'json'
+        try:
+            data, text = self._v1_answer(u, path, q.get('q', [''])[0].strip()[:80])
+        except LookupError:
+            return self.json(404, {'error': 'okänd fråga'})
+        if want_json:
+            return self.json(200, dict(data, svar=text))
+        self.send(200, text + '\n', 'text/plain; charset=utf-8')
+
+    def _v1_answer(self, u, path, query):
+        uid = u['id']
+        names = _catalog_names()
+        if path == '/api/v1/elpris':
+            st = self._cost_settings(uid, {})
+            extra = float((st['extra'] or '0').replace(',', '.') or 0)
+            try:
+                iv = (energy.tibber_prices(db.get_pref(uid, 'tibber_token'), extra) if st['source'] == 'tibber'
+                      else energy.spot_prices(st['area'], None, st['vat'] == '1', extra))
+            except energy.EnergyError:
+                iv = []
+            o = energy.price_outlook(iv)
+            if not o:
+                return {}, 'Elpriset kunde inte hämtas just nu.'
+            text = f"Elpriset är {o['now']:.2f} kronor per kilowattimme just nu.".replace('.', ',', 1)
+            if o['low']:
+                text += f" Lägst de närmaste 12 timmarna: {o['low'][1]:.2f} kronor klockan {o['low'][0]:%H:%M}.".replace('.', ',', 1)
+            return {'nu': o['now'], 'lagst': o['low'][1] if o['low'] else None}, text
+        if path == '/api/v1/filament':
+            have, _ = self._available(uid)
+            words = [w for w in re.split(r'\s+', query.lower()) if w]
+            sv = {'svart': 'black', 'vit': 'white', 'grå': 'gray', 'röd': 'red', 'blå': 'blue', 'grön': 'green', 'gul': 'yellow', 'orange': 'orange', 'rosa': 'pink', 'lila': 'purple', 'brun': 'brown'}
+            words = [sv.get(w, w) for w in words]
+            hits = [(k, g) for k, g in have.items() if all(w in (k.split('|')[0] + ' ' + names.get(k, '')).lower() for w in words)]
+            hits.sort(key=lambda x: -x[1])
+            if not hits:
+                return {'traffar': []}, f'Hittade inget filament som matchar "{query}".' if query else 'Inga spolar är synkade.'
+            fc = printlog.forecast(uid, have)
+            parts = []
+            for k, g in hits[:5]:
+                days = fc.get(k, {}).get('days')
+                parts.append(f"{k.split('|')[0]} {names.get(k, '')}: {g:.0f} gram" + (f', räcker cirka {days} dagar' if days is not None else ''))
+            return {'traffar': [{'key': k, 'gram': g} for k, g in hits[:20]]}, 'Du har ' + '; '.join(parts) + '.'
+        if path == '/api/v1/skrivare':
+            st = self._printer_status(uid, with_prices=False)
+            if not st:
+                return {'skrivare': []}, 'Inga skrivare är tillagda.'
+            parts = []
+            for p in st:
+                if p['state'] in ('RUNNING', 'PAUSE'):
+                    parts.append(f"{p['name']} {p['stateText'].lower()} {p['job'] or ''}, {p['percent'] or 0:.0f} procent klart"
+                                 + (f", {int(p['left'] or 0)} minuter kvar" if p['left'] is not None else ''))
+                else:
+                    parts.append(f"{p['name']}: {p['stateText'].lower()}")
+            return {'skrivare': st}, '. '.join(parts) + '.'
+        if path == '/api/v1/sammanfattning':
+            offers, _ = cart.load_offers()
+            hits = alerts.hits(uid, offers)
+            low = [k for k, g in self._available(uid)[0].items() if g < int(db.get_pref(uid, 'low_grams') or 200)]
+            n_cart = sum(r['qty'] for r in db.get_cart(uid))
+            text = (f"{len(hits)} bevakningar har nått ditt pris. {len(low)} färger är snart slut. "
+                    f"Inköpslistan har {n_cart} spolar.")
+            return {'malpris': sorted(hits), 'snartSlut': low, 'inkopslista': n_cart}, text
+        raise LookupError
 
     def post_password(self):
         f = self.form()
@@ -809,7 +969,19 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, ValueError):
             offers_info = '—'
         self.send(code, pages.admin(u, self.session()['csrf'], db.list_users(), runs, scheduler.next_run_text(),
-                                    offers_info, kind, msg, secret, backups=backup.list_backups()))
+                                    offers_info, kind, msg, secret, backups=backup.list_backups(),
+                                    integrations=self._integrations()))
+
+    def _integrations(self):
+        from . import spoolman
+        ha = homeassistant.settings()
+        sm = spoolman.settings()
+        try:
+            st = json.loads(db.get_setting('spoolman_status') or 'null')
+        except ValueError:
+            st = None
+        return {'ha': {**ha, 'password': bool(ha['password'])}, 'spoolman': {**sm, 'status': st},
+                'users': [(u['id'], u['username']) for u in db.list_users()]}
 
     def get_admin(self):
         if not self.user()['is_admin']:
@@ -827,6 +999,236 @@ class Handler(BaseHTTPRequestHandler):
             return self.not_found()
         self.send(200, p.read_bytes(), 'application/zip', headers=[('Content-Disposition', f'attachment; filename="{name}"')])
 
+    # ---------- skrivare ----------
+    def _printer_status(self, uid, with_prices=True):
+        catalog = _catalog()
+        matcher = bambu.SpoolMatcher(catalog, bambu.color_db())
+        iv = []
+        if with_prices:
+            try:
+                src = db.get_pref(uid, 'cost_source') or 'spot'
+                extra = float(str(db.get_pref(uid, 'cost_extra') or '0').replace(',', '.'))
+                if src == 'tibber':
+                    iv = energy.tibber_prices(db.get_pref(uid, 'tibber_token'), extra)
+                elif src == 'spot':
+                    iv = energy.spot_prices(db.get_pref(uid, 'cost_area') or 'SE3', None, (db.get_pref(uid, 'cost_vat') or '1') == '1', extra)
+                else:
+                    fixed = float(str(db.get_pref(uid, 'cost_fixed') or '2').replace(',', '.'))
+                    iv = [(datetime.datetime(2000, 1, 1, tzinfo=energy.TZ), datetime.datetime(2100, 1, 1, tzinfo=energy.TZ), fixed + extra)]
+            except (energy.EnergyError, ValueError):
+                iv = []
+        return printers.status(uid, matcher, iv)
+
+    def get_printers(self, kind='', msg='', code=200):
+        u = self.user()
+        link = db.get_bambu(u['id'])
+        self.send(code, pages.printers_page(u, self.session()['csrf'], self._printer_status(u['id']), _catalog_names(),
+                                            bool(link and link['token']), kind, msg))
+
+    def get_printer_cards(self):
+        u = self.user()
+        self.send(200, pages.printer_cards(self._printer_status(u['id']), _catalog_names(), self.session()['csrf']), cache='no-store')
+
+    def api_printers(self):
+        u = self.api_user()
+        if not u:
+            return self.json(401, {'error': 'inte inloggad'})
+        self.json(200, {'printers': self._printer_status(u['id'])})
+
+    def printers_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        if path == '/skrivare/hamta':
+            link = db.get_bambu(uid)
+            if not link or not link['token']:
+                return self.get_printers('err', 'Koppla ditt Bambu Lab-konto under Mitt konto först.', 400)
+            try:
+                devices = bambu.get_devices(link['token'], link['region'])
+            except bambu.BambuError as ex:
+                return self.get_printers('err', str(ex), 502)
+            known = {p['serial'] for p in db.list_printers(uid)}
+            for d in devices:
+                db.save_printer(uid, d['serial'], d['name'], d['model'], 'cloud' if d['serial'] not in known else
+                                next(p['mode'] for p in db.list_printers(uid) if p['serial'] == d['serial']),
+                                None, d['access_code'] or None)
+            for p in db.list_printers(uid):
+                printers.start(p['id'])
+            return self.get_printers('ok', f'{len(devices)} {"skrivare" if len(devices) == 1 else "skrivare"} hittades på Bambu Lab-kontot.'
+                                     if devices else 'Inga skrivare är kopplade till Bambu Lab-kontot.')
+        if path == '/skrivare/ny':
+            name, serial = f.get('name', '').strip()[:60], f.get('serial', '').strip().upper()
+            host, code = f.get('host', '').strip(), f.get('code', '').strip()
+            err = self._check_lan(serial, host, code)
+            if err:
+                return self.get_printers('err', err, 400)
+            db.save_printer(uid, serial, name or serial, None, 'lan', host, code)
+            p = next(p for p in db.list_printers(uid) if p['serial'] == serial)
+            printers.start(p['id'])
+            return self.get_printers('ok', f'{name or serial} är tillagd. Statusen visas när skrivaren svarar.')
+        m = re.fullmatch(r'/skrivare/(\d+)/(andra|ta-bort)', path)
+        if not m or not db.get_printer(uid, int(m.group(1))):
+            return self.not_found()
+        pid = int(m.group(1))
+        if m.group(2) == 'ta-bort':
+            printers.stop_one(pid)
+            db.delete_printer(uid, pid)
+            return self.get_printers('ok', 'Skrivaren är borttagen.')
+        row = db.get_printer(uid, pid)
+        mode = f.get('mode') if f.get('mode') in ('cloud', 'lan') else row['mode']
+        host = f.get('host', '').strip() or row['host']
+        code = f.get('code', '').strip() or row['access_code']
+        if mode == 'lan':
+            err = self._check_lan(row['serial'], host, code)
+            if err:
+                return self.get_printers('err', err, 400)
+        watts = f.get('watts', '').strip()
+        db.update_printer(uid, pid, mode=mode, host=host, access_code=code,
+                          watts=int(watts) if watts.isdigit() and 10 <= int(watts) <= 3000 else row['watts'])
+        printers.start(pid)
+        return self.get_printers('ok', 'Skrivaren är uppdaterad.')
+
+    @staticmethod
+    def _check_lan(serial, host, code):
+        if not re.fullmatch(r'[A-Z0-9]{6,32}', serial):
+            return 'Serienumret ska bestå av bokstäver och siffror (finns på skrivarens skärm och i Bambu Handy).'
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return 'Ange skrivarens IP-adress i det lokala nätet, t.ex. 192.168.1.50.'
+        if not (ip.is_private or (os.environ.get('KATALOG_MQTT_TEST_PLAIN') == '1' and ip.is_loopback)) or ip.is_loopback and \
+                os.environ.get('KATALOG_MQTT_TEST_PLAIN') != '1':
+            return 'Bara adresser i det lokala nätet tillåts.'
+        if not re.fullmatch(r'[A-Za-z0-9]{6,16}', code):
+            return 'Åtkomstkoden (8 tecken) finns i skrivarens nätverksinställningar.'
+        return None
+
+    # ---------- samköp ----------
+    def get_groupbuy(self, kind='', msg='', code=200, chosen=None):
+        from . import groupbuy
+        u = self.user()
+        parts = groupbuy.participants(u['id'])
+        result = None
+        if chosen:
+            ids = [p['id'] for p in parts if p['id'] in chosen]
+            if u['id'] not in ids:
+                ids.insert(0, u['id'])
+            offers, checked = cart.load_offers()
+            together, people = groupbuy.plan(ids, offers, _catalog())
+            result = {'plan': together, 'people': people, 'checked': checked, 'ids': ids}
+        names = {p['id']: p['username'] for p in parts}
+        self.send(code, pages.groupbuy_page(u, self.session()['csrf'], parts, names, result, _catalog_names(),
+                                            db.get_pref(u['id'], 'samkop_ok') == '1', kind, msg))
+
+    def groupbuy_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        if path == '/samkop/tillat':
+            on = f.get('on') == '1'
+            db.set_pref(uid, 'samkop_ok', '1' if on else None)
+            return self.get_groupbuy('ok', 'Andra kan nu ta med din inköpslista i ett samköp.' if on else 'Din inköpslista tas inte längre med i andras samköp.')
+        if path == '/samkop/rakna':
+            raw = urllib.parse.parse_qs(self._last_form_raw, keep_blank_values=True).get('user', []) if hasattr(self, '_last_form_raw') else []
+            chosen = {int(x) for x in raw if x.isdigit()}
+            return self.get_groupbuy(chosen=chosen or {uid})
+        return self.not_found()
+
+    # ---------- projekt ----------
+    def get_projects(self, kind='', msg='', code=200):
+        u = self.user()
+        projs = db.list_projects(u['id'])
+        prints = db.get_prints(u['id'])
+        sums = {}
+        for r in prints:
+            if r['project_id']:
+                s_ = sums.setdefault(r['project_id'], {'n': 0, 'total': 0.0})
+                s_['n'] += 1
+                s_['total'] += r['total']
+        self.send(code, pages.projects_page(u, self.session()['csrf'], projs, sums, kind, msg))
+
+    def get_project(self, pid, csv_export=False, kind='', msg='', code=200):
+        u = self.user()
+        p = db.get_project(u['id'], pid)
+        if not p:
+            return self.not_found()
+        prints = [r for r in db.get_prints(u['id']) if r['project_id'] == pid]
+        names = _catalog_names()
+        if csv_export:
+            import csv
+            import io
+            buf = io.StringIO()
+            w = csv.writer(buf, delimiter=';')
+            w.writerow(['Datum', 'Utskrift', 'Resultat', 'Tid (h)', 'Filament (g)', 'Filament (kr)', 'El (kr)', 'Slitage (kr)', 'Totalt (kr)'])
+            for r in sorted(prints, key=lambda r: r['ts']):
+                g = sum(json.loads(r['grams'] or '{}').values())
+                w.writerow([pages.fmt_time(r['ts']), r['name'], {'ok': 'Lyckades', 'failed': 'Misslyckades', 'cancelled': 'Avbruten'}.get(r['status'], r['status']),
+                            f"{r['hours']:.2f}".replace('.', ','), f'{g:.1f}'.replace('.', ','), f"{r['filament']:.2f}".replace('.', ','),
+                            f"{r['el']:.2f}".replace('.', ','), f"{r['wear']:.2f}".replace('.', ','), f"{r['total']:.2f}".replace('.', ',')])
+            fname = re.sub(r'[^A-Za-z0-9_-]+', '-', p['name']).strip('-') or 'projekt'
+            return self.send(200, '\ufeff' + buf.getvalue(), 'text/csv; charset=utf-8',
+                             headers=[('Content-Disposition', f'attachment; filename="{fname}.csv"')])
+        catalog = _catalog()
+        owned = set(db.get_owned(u['id']) or [])
+        have, _ = self._available(u['id'])
+        owned |= set(have)
+        colors_ = json.loads(p['colors'] or '[]')
+        by_key = {d['type'] + '|' + (d['code'] or d['name']): d for d in catalog}
+        offers, _ = cart.load_offers()
+        palette = []
+        from . import colors as colormath
+        for k in colors_:
+            d = by_key.get(k)
+            if not d:
+                continue
+            info = alerts.best(k, offers)
+            similar = [] if k in owned else [(round(dist), x) for dist, x in colormath.nearest(d['hex'][0] if d['hex'] else '', catalog, 3,
+                                                                                                 among=owned, exclude={k}) if dist < 25]
+            palette.append({'key': k, 'item': d, 'owned': k in owned, 'grams': have.get(k), 'best': info['best'], 'similar': similar})
+        self.send(code, pages.project_page(u, self.session()['csrf'], p, palette, prints, names, kind, msg))
+
+    def projects_post(self, path):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        uid = self.user()['id']
+        if path == '/projekt/ny':
+            name = f.get('name', '').strip()
+            if not name:
+                return self.get_projects('err', 'Ge projektet ett namn.', 400)
+            pid = db.create_project(uid, name, f.get('customer', '').strip())
+            return self.redirect(f'/projekt/{pid}')
+        m = re.fullmatch(r'/projekt/(\d+)/(farg|ta-bort-farg|ta-bort|andra|saknade)', path)
+        if not m or not db.get_project(uid, int(m.group(1))):
+            return self.not_found()
+        pid, action = int(m.group(1)), m.group(2)
+        p = db.get_project(uid, pid)
+        cols = json.loads(p['colors'] or '[]')
+        if action == 'farg':
+            key = f.get('key', '')
+            if key in _catalog_names() and key not in cols and len(cols) < 40:
+                db.update_project(uid, pid, colors=cols + [key])
+        elif action == 'ta-bort-farg':
+            db.update_project(uid, pid, colors=[k for k in cols if k != f.get('key')])
+        elif action == 'andra':
+            db.update_project(uid, pid, name=(f.get('name', '').strip() or p['name'])[:80], customer=f.get('customer', '').strip()[:120] or None,
+                              note=f.get('note', '').strip()[:2000] or None)
+        elif action == 'ta-bort':
+            db.delete_project(uid, pid)
+            return self.redirect('/projekt')
+        elif action == 'saknade':
+            have, _ = self._available(uid)
+            owned = set(db.get_owned(uid) or []) | set(have)
+            in_cart = {r['key'] for r in db.get_cart(uid)}
+            n = 0
+            for k in cols:
+                if k not in owned and k not in in_cart and db.set_cart_item(uid, k, 1, 'any'):
+                    n += 1
+            return self.get_project(pid, kind='ok', msg=f'{n} saknade färger lagda i inköpslistan.' if n else 'Inget saknas som inte redan finns i inköpslistan.')
+        return self.redirect(f'/projekt/{pid}')
+
     # ---------- utskriftslogg ----------
     def get_prints(self, kind='', msg='', code=200):
         u = self.user()
@@ -837,7 +1239,7 @@ class Handler(BaseHTTPRequestHandler):
         bambu_left = {k: v.get('grams') for k, v in (_bambu_summary(u['id']) or {}).get('items', {}).items()} if link else {}
         self.send(code, pages.prints_page(u, self.session()['csrf'], db.get_prints(u['id'], limit=300), printlog.stats(u['id']),
                                           printlog.forecast(u['id'], bambu_left), _catalog_names(), bool(link and link['token']),
-                                          kind, msg))
+                                          kind, msg, projects=db.list_projects(u['id'])))
 
     def prints_post(self, path):
         f = self.form()
@@ -857,6 +1259,16 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             db.delete_print(uid, int(m.group(1)))
             return self.redirect('/utskrifter')
+        m = re.fullmatch(r'/utskrifter/(\d+)/andra', path)
+        if m:
+            status = f.get('status') if f.get('status') in ('ok', 'failed', 'cancelled') else None
+            reason = f.get('reason') if f.get('reason') in printlog.REASONS else None
+            fields = {'status': status, 'reason': reason if status and status != 'ok' else None}
+            if 'project' in f:
+                pid = f.get('project', '')
+                fields['project_id'] = int(pid) if pid.isdigit() and db.get_project(uid, int(pid)) else None
+            db.update_print(uid, int(m.group(1)), **{k: v for k, v in fields.items() if k != 'status' or v})
+            return self.redirect('/utskrifter#u' + m.group(1))
         return self.not_found()
 
     # ---------- kvitton ----------
@@ -922,6 +1334,16 @@ class Handler(BaseHTTPRequestHandler):
             db.set_receipt(uid, int(m.group(1)), None)
         return self.redirect('/inkopslista#kophistorik')
 
+    def api_new(self):
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        sm = newcolors.summary()
+        keep = ('code', 'type', 'name', 'hex', 'first')
+        self.json(200, {'recent': sm['recent'], 'since': sm['since'], 'days': newcolors.NEW_DAYS,
+                        'upcoming': [{k: v.get(k) for k in keep} for v in sm['upcoming']],
+                        'missing': [{k: v.get(k) for k in keep} for v in sm['missing']]})
+
     def api_skus(self):
         u = self.user()
         if not u or u['must_change_pw']:
@@ -975,6 +1397,53 @@ class Handler(BaseHTTPRequestHandler):
             return self.admin_create(f)
         if path == '/admin/sakerhetskopia':
             return self.admin_backup()
+        if path in ('/admin/homeassistant', '/admin/homeassistant/testa'):
+            if path.endswith('/testa'):
+                try:
+                    n = homeassistant.publish_all(force=True)
+                except Exception as ex:  # noqa: BLE001
+                    return self._admin_page('err', f'Home Assistant: {ex}', code=502)
+                return self._admin_page('ok', f'{n} sensorer skickade till Home Assistant.' if n else 'Home Assistant är inte inställt.')
+            host = f.get('host', '').strip()
+            if host and not re.fullmatch(r'[A-Za-z0-9.-]{1,253}', host):
+                return self._admin_page('err', 'Ogiltig adress till MQTT-brokern.', code=400)
+            port = f.get('port', '').strip() or '1883'
+            uid_ = f.get('user_id', '').strip()
+            if not port.isdigit() or not 1 <= int(port) <= 65535 or (uid_ and not db.get_user(int(uid_) if uid_.isdigit() else 0)):
+                return self._admin_page('err', 'Kontrollera port och användare.', code=400)
+            for k, v in (('host', host), ('port', port), ('user', f.get('user', '').strip()[:100]), ('user_id', uid_),
+                         ('prefix', (f.get('prefix', '').strip() or 'homeassistant')[:60])):
+                if v:
+                    db.set_setting('ha_' + k, v)
+                else:
+                    db.delete_setting('ha_' + k)
+            if f.get('password'):
+                db.set_setting('ha_password', f['password'][:200])
+            if f.get('clear_password'):
+                db.delete_setting('ha_password')
+            return self._admin_page('ok', 'Home Assistant-inställningarna är sparade.' if host else 'Home Assistant är avstängt.')
+        if path in ('/admin/spoolman', '/admin/spoolman/synka'):
+            from . import spoolman
+            if path.endswith('/synka'):
+                res = spoolman.sync()
+                if not res:
+                    return self._admin_page('err', 'Spoolman är inte inställt.', code=400)
+                return self._admin_page('ok' if res[0] == 'ok' else 'err', res[1], code=200 if res[0] == 'ok' else 502)
+            url = f.get('url', '').strip().rstrip('/')
+            uid_ = f.get('user_id', '').strip()
+            if url:
+                err = spoolman.check_url(url)
+                if err:
+                    return self._admin_page('err', err, code=400)
+                if not uid_.isdigit() or not db.get_user(int(uid_)):
+                    return self._admin_page('err', 'Välj vems katalog Spoolman ska synkas med.', code=400)
+                db.set_setting('spoolman_url', url)
+                db.set_setting('spoolman_user_id', uid_)
+                db.set_setting('spoolman_push', '1' if f.get('push') == '1' else '0')
+            else:
+                for k in ('spoolman_url', 'spoolman_user_id', 'spoolman_push', 'spoolman_status'):
+                    db.delete_setting(k)
+            return self._admin_page('ok', 'Spoolman-inställningarna är sparade.' if url else 'Spoolman-synken är avstängd.')
         if path == '/admin/sakerhetskopior/ny':
             name = backup.create()
             print(f'[admin] {u["username"]} skapade säkerhetskopian {name}', flush=True)
@@ -1142,6 +1611,7 @@ class Handler(BaseHTTPRequestHandler):
                                    f'Färgerna är markerade under Jag har och borttagna ur listan.')
 
     def get_wish(self, kind='', msg='', code=200):
+        from . import season
         u = self.user()
         offers, checked = cart.load_offers()
         keys = db.get_wish(u['id'])
@@ -1151,9 +1621,11 @@ class Handler(BaseHTTPRequestHandler):
             info = alerts.best(k, offers)
             low = [p[1] for s in history.series(k, offers) for p in s['points']]
             rows.append({'key': k, 'info': info, 'alert': al.get(k), 'hit': bool(al.get(k)) and alerts.is_hit(al[k], info),
-                         'low90': min(low) if low else None})
+                         'low90': min(low) if low else None, 'tip': season.advice(k)})
         self.send(code, pages.wish_page(u, self.session()['csrf'], rows, _catalog_names(), db.get_pref(u['id'], 'notify'),
-                                        bool(config.NOTIFY_HOSTS), checked, kind, msg))
+                                        bool(config.NOTIFY_HOSTS), checked, kind, msg,
+                                        notify_new=db.get_pref(u['id'], 'notify_new') == '1',
+                                        calendar=season.calendar_hint(datetime.date.today())))
 
     def wish_post(self, path):
         f = self.form()
@@ -1183,6 +1655,10 @@ class Handler(BaseHTTPRequestHandler):
             db.set_wish(uid, [k for k in db.get_wish(uid) if k != key])
             db.set_alert(uid, key, None, None)
             return self.redirect('/onskelista')
+        if path == '/onskelista/nyheter':
+            on = f.get('on') == '1'
+            db.set_pref(uid, 'notify_new', '1' if on else None)
+            return self.get_wish('ok', 'Du aviseras när Bambu Lab får nya färger.' if on else 'Aviseringar om nya färger är avstängda.')
         if path == '/onskelista/avisering':
             if f.get('do') == 'ta-bort' or not f.get('target', '').strip():
                 db.set_pref(uid, 'notify', None)
@@ -1234,7 +1710,8 @@ class Handler(BaseHTTPRequestHandler):
             if not result:
                 intervals = []
         self.send(code, pages.cost_page(u, self.session()['csrf'], form, _catalog_names(), result,
-                                        intervals if st['source'] != 'fast' else [], errors, has_tibber, kind, msg, live=live))
+                                        intervals if st['source'] != 'fast' else [], errors, has_tibber, kind, msg, live=live,
+                                        projects=db.list_projects(u['id'])))
 
     def _cost_compute(self, u, q):
         st = self._cost_settings(u['id'], q)
@@ -1298,9 +1775,34 @@ class Handler(BaseHTTPRequestHandler):
             result = costcalc.calculate(rows, st['mode'], per_kg, hours, watts, intervals, start, wear, offers,
                                         db.last_paid(u['id']), now)
             result.update(start=start, hours=hours, watts=watts, source=src_note, now=now)
-        form.update(printer=q.get('printer', [''])[-1][:20], name=q.get('name', [''])[-1][:120], markup=q.get('markup', [''])[-1], fail=q.get('fail', [''])[-1],
+            result['shortage'] = self._shortage(u['id'], rows)
+        form.update(project=q.get('project', [''])[-1][:10], printer=q.get('printer', [''])[-1][:20], name=q.get('name', [''])[-1][:120], markup=q.get('markup', [''])[-1], fail=q.get('fail', [''])[-1],
                     qvat=q.get('qvat', ['0'])[-1], rnd=q.get('rnd', ['1'])[-1], customer=q.get('customer', [''])[-1][:120])
         return form, result, intervals, errors, st
+
+    def _available(self, uid):
+        """Gram kvar per katalogfärg: Bambu-biblioteket och Spoolman (det största värdet per färg)."""
+        have = {}
+        link = db.get_bambu(uid)
+        for k, v in (json.loads(link['matched'] or '{}') if link else {}).items():
+            have[k] = max(have.get(k, 0), v.get('grams') or 0)
+        try:
+            for k, v in json.loads(db.get_pref(uid, 'spoolman_matched') or '{}').items():
+                have[k] = max(have.get(k, 0), v.get('grams') or 0)
+        except ValueError:
+            pass
+        return have, bool(link) or bool(db.get_pref(uid, 'spoolman_matched'))
+
+    def _shortage(self, uid, rows):
+        """[(nyckel, behövs, finns)] för färger där det som finns kvar inte räcker till utskriften."""
+        have, known = self._available(uid)
+        if not known:
+            return []
+        need = {}
+        for k, g in rows:
+            if k:
+                need[k] = need.get(k, 0) + g
+        return [(k, g, have.get(k, 0)) for k, g in need.items() if g > have.get(k, 0)]
 
     def cost_post(self, path):
         f = self.form()
@@ -1328,8 +1830,11 @@ class Handler(BaseHTTPRequestHandler):
                 for l in res['lines']:
                     grams[l['key']] = round(grams.get(l['key'], 0) + l['grams'], 2)
                 printer = next((n for pid, n, _ in costcalc.PRINTERS if pid == form.get('printer')), None)
-                db.add_print(uid, res['start'].timestamp(), form['name'] or 'Utskrift', printer, res['hours'], grams,
-                             res['filament'], res['el']['cost'], res['el']['kwh'], res['wear'], res['total'])
+                new_id = db.add_print(uid, res['start'].timestamp(), form['name'] or 'Utskrift', printer, res['hours'], grams,
+                                      res['filament'], res['el']['cost'], res['el']['kwh'], res['wear'], res['total'])
+                proj = f.get('project', '')
+                if new_id and proj.isdigit() and db.get_project(uid, int(proj)):
+                    db.update_print(uid, new_id, project_id=int(proj))
                 return self.redirect('/utskrifter?m=sparad')
             return self.get_cost(q=q)
         if path == '/kostnad/tibber':
@@ -1464,7 +1969,19 @@ class Handler(BaseHTTPRequestHandler):
         items = db.get_owned(u['id'])
         bs = _bambu_summary(u['id'])
         left = {k: v.get('grams') for k, v in (bs or {}).get('items', {}).items()}
-        self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': bs,
+        try:
+            spool = json.loads(db.get_pref(u['id'], 'spoolman_matched') or '{}')
+        except ValueError:
+            spool = {}
+        for k, v in spool.items():
+            left[k] = max(left.get(k) or 0, v.get('grams') or 0)
+        ams = {}
+        if db.list_printers(u['id']):
+            for p in self._printer_status(u['id'], with_prices=False):
+                for t in p['trays']:
+                    if t['key']:
+                        ams.setdefault(t['key'], []).append(f"{p['name']} · {t['slot']}")
+        self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': bs, 'spoolman': spool, 'ams': ams,
                         'forecast': printlog.forecast(u['id'], left)})
 
     def api_owned_put(self):
@@ -1591,7 +2108,9 @@ class Handler(BaseHTTPRequestHandler):
         if key not in _catalog_names():
             return self.json(400, {'error': 'okänd färg'})
         offers, _ = cart.load_offers()
-        self.json(200, {'key': key, 'series': history.series(key, offers)})
+        from . import season
+        tips = [t for t in (season.advice(key), season.calendar_hint(datetime.date.today())) if t]
+        self.json(200, {'key': key, 'series': history.series(key, offers), 'tips': tips})
 
 
 def _int(v, default):

@@ -8,6 +8,8 @@ from . import bambu, cart, config, costcalc, db, energy
 
 STATUS = {2: 'ok', 3: 'failed', 4: 'cancelled'}      # Bambu-molnets uppgiftsstatus; övriga = pågår (hoppas över)
 USAGE_DAYS = 60                                       # prognosen bygger på förbrukningen de senaste 60 dagarna
+REASONS = ['Lossnade från plattan', 'Spaghetti / trassel', 'Igensatt munstycke', 'Filamentet tog slut eller fastnade',
+           'Lagerförskjutning', 'Dålig kvalitet (strängning, vridning)', 'Fel i modellen eller slicern', 'Avbruten av mig', 'Annat']
 
 
 def _printer_watts(model, default):
@@ -109,8 +111,8 @@ def stats(user_id, now=None):
     now = now or datetime.datetime.now(energy.TZ)
     rows = db.get_prints(user_id)
     year = now.year
-    out = {'year': {'n': 0, 'grams': 0.0, 'total': 0.0, 'filament': 0.0, 'el': 0.0, 'failed': 0}, 'months': {}, 'colors': {},
-           'printers': {}}
+    out = {'year': {'n': 0, 'grams': 0.0, 'total': 0.0, 'filament': 0.0, 'el': 0.0, 'failed': 0, 'wasted': 0.0, 'wasted_g': 0.0},
+           'months': {}, 'colors': {}, 'printers': {}, 'reasons': {}, 'fail_types': {}}
     for r in rows:
         t = datetime.datetime.fromtimestamp(r['ts'], energy.TZ)
         grams = json.loads(r['grams'] or '{}')
@@ -123,6 +125,9 @@ def stats(user_id, now=None):
             y['filament'] += r['filament']
             y['el'] += r['el']
             y['failed'] += r['status'] != 'ok'
+            if r['status'] != 'ok':
+                y['wasted'] += r['total']
+                y['wasted_g'] += g
         m = out['months'].setdefault(t.strftime('%Y-%m'), {'n': 0, 'grams': 0.0, 'total': 0.0})
         m['n'] += 1
         m['grams'] += g
@@ -132,8 +137,21 @@ def stats(user_id, now=None):
             c = out['colors'].setdefault(k, {'grams': 0.0, 'cost': 0.0})
             c['grams'] += v
             c['cost'] += v * share
-        p = out['printers'].setdefault(r['printer'] or 'Okänd skrivare', {'n': 0, 'hours': 0.0, 'kwh': 0.0, 'total': 0.0})
+        p = out['printers'].setdefault(r['printer'] or 'Okänd skrivare', {'n': 0, 'hours': 0.0, 'kwh': 0.0, 'total': 0.0, 'failed': 0})
         p['n'] += 1
+        p['failed'] += r['status'] != 'ok'
+        # Felstatistik: per orsak och per filamenttyp (andel misslyckade)
+        for k in grams:
+            t = (k.split('|')[0] if k else 'Annat filament')
+            ft = out['fail_types'].setdefault(t, {'n': 0, 'failed': 0})
+            ft['n'] += 1
+            ft['failed'] += r['status'] != 'ok'
+        if r['status'] != 'ok':
+            reason = r['reason'] or 'Ingen orsak angiven'
+            rr = out['reasons'].setdefault(reason, {'n': 0, 'cost': 0.0, 'grams': 0.0})
+            rr['n'] += 1
+            rr['cost'] += r['total']
+            rr['grams'] += g
         p['hours'] += r['hours']
         p['kwh'] += r['kwh']
         p['total'] += r['total']

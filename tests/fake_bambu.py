@@ -38,6 +38,13 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/colors.json': return self.out(200, COLORS)
         if self.path == '/api/csrf': return self.out(204, None, [('Set-Cookie', 'bbl_csrf_token=abc; Path=/')])
+        if self.path == '/v1/iot-service/api/user/bind':
+            if self.headers.get('Authorization') != 'Bearer ' + TOKEN: return self.out(401)
+            return self.out(200, {'devices': [{'dev_id': '01S00A123456789', 'name': 'Verkstan', 'online': True,
+                                               'dev_product_name': 'P1S', 'dev_access_code': '12345678'}]})
+        if self.path == '/v1/design-user-service/my/preference':
+            if self.headers.get('Authorization') != 'Bearer ' + TOKEN: return self.out(401)
+            return self.out(200, {'uid': 4242})
         if self.path.startswith('/v1/user-service/my/tasks'):
             if self.headers.get('Authorization') != 'Bearer ' + TOKEN: return self.out(401)
             return self.out(200, {'total': len(TASKS), 'hits': TASKS})

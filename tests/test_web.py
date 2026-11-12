@@ -158,6 +158,45 @@ class WebFlow(unittest.TestCase):
             r=urllib.request.Request(B+'/admin/sakerhetskopior/'+name.group(1),headers={'Host':f'127.0.0.1:{self.port}'})
             with a.open(r) as x: ok(x.read()[:2]==b'PK','ladda ner sparad säkerhetskopia')
         s,h,b=req(a,'/admin/sakerhetskopior/..%2Fkatalog.db'); ok(s==404,'ingen sökvägsflykt för säkerhetskopior')
+        # nya färger
+        s,h,b=req(a,'/api/new'); n=json.loads(b); ok(s==200 and set(n)>={'recent','upcoming','missing','days'},'api/new: %s'%b[:200])
+        s,h,b=req(a,'/onskelista'); t12=csrf(b)
+        s,h,b=req(a,'/onskelista/nyheter',{'csrf':t12,'on':'1'}); ok(s==200 and 'Sluta avisera om nya färger' in b,'slå på avisering om nya färger')
+        s,h,b=req(a,'/onskelista/nyheter',{'csrf':t12,'on':'0'}); ok('Avisera om nya färger' in b,'slå av avisering om nya färger')
+        # skrivare
+        s,h,b=req(a,'/skrivare'); t13=csrf(b); ok(s==200 and 'Lägg till skrivare lokalt' in b,'skrivarsidan visas')
+        s,h,b=req(a,'/skrivare/ny',{'csrf':t13,'name':'X','serial':'ABC123456','host':'8.8.8.8','code':'12345678'}); ok(s==400 and 'lokala nätet' in b,'skrivare utanför lokala nätet nekas')
+        s,h,b=req(a,'/skrivare/ny',{'csrf':t13,'name':'Verkstan','serial':'ABC123456','host':'192.168.77.9','code':'12345678'}); ok(s==200 and 'Verkstan' in b and '12345678' not in b,'lägg till lokal skrivare (koden visas inte)')
+        s,h,b=req(a,'/skrivare/kort'); ok(s==200 and 'Verkstan' in b,'statuskort för skrivare')
+        s,h,b=req(a,'/api/printers'); ok(s==200 and json.loads(b)['printers'][0]['name']=='Verkstan','skrivare i api')
+        pid=json.loads(b)['printers'][0]['id']
+        s,h,b=req(a,f'/skrivare/{pid}/ta-bort',{'csrf':t13}); ok(s==200 and 'borttagen' in b,'ta bort skrivare')
+        # projekt
+        s,h,b=req(a,'/projekt'); t14=csrf(b)
+        s,h,b=req(a,'/projekt/ny',{'csrf':t14,'name':'Hylla','customer':'Kalle'}); ok(s==303,'skapa projekt'); purl=h.get('Location','')
+        s,h,b=req(a,purl+'/farg',{'csrf':t14,'key':'PLA Basic|10300'}); ok(s==303,'lägg färg i projekt')
+        s,h,b=req(a,purl); ok(s==200 and 'Orange' in b and 'Saknas' in b,'projektets palett visas')
+        s,h,b=req(a,purl+'/saknade',{'csrf':t14}); ok('saknade färger lagda' in b,'saknade färger till inköpslistan')
+        s,h,b=req(a,purl+'.csv'); ok(s==200 and h.get('Content-Type','').startswith('text/csv'),'projekt som CSV')
+        # API-nycklar och svar för genvägar
+        s,h,b=req(a,'/konto'); t15=csrf(b); ok('Genvägar och röstassistenter' in b and 'Exportera som JSON' in b,'kontosidan har API-nycklar och export')
+        s,h,b=req(a,'/konto/api-nyckel',{'csrf':t15,'name':'iPhone'}); key=re.search(r'value="(kat_[^"]+)"',b); ok(key,'skapa API-nyckel')
+        if key:
+            anon2,_=client()
+            s,h,b=req(anon2,'/api/v1/sammanfattning',headers={'Authorization':'Bearer '+key.group(1)}); ok(s==200 and 'Inköpslistan har' in b,'svar med API-nyckel: %s'%b)
+            s,h,b=req(anon2,'/api/v1/filament?q=svart&format=json',headers={'Authorization':'Bearer '+key.group(1)}); ok(s==200 and 'svar' in json.loads(b),'filamentfråga som json')
+            s,h,b=req(anon2,'/api/v1/elpris',headers={'Authorization':'Bearer kat_'+'x'*43}); ok(s==401,'fel API-nyckel nekas')
+            s,h,b=req(anon2,'/api/owned',headers={'Authorization':'Bearer '+key.group(1)}); ok(s==401,'API-nyckel ger inte åtkomst till andra API:er')
+        # export och import
+        s,h,b=req(a,'/konto/export.json'); exp=json.loads(b); ok(s==200 and exp['format']=='bambu-filamentkatalog','exportera JSON')
+        s,h,b=req(a,'/api/import',json.dumps(exp).encode(),'PUT',J); ok(s==200 and 'imported' in json.loads(b),'importera JSON: %s'%b[:200])
+        s,h,b=req(a,'/api/import',b'{"format":"x"}','PUT',J); ok(s==400,'fel format nekas')
+        # samköp och integrationer
+        s,h,b=req(a,'/samkop'); t16=csrf(b); ok(s==200 and 'Vilka är med' in b,'samköpssidan visas')
+        s,h,b=req(a,'/samkop/rakna',{'csrf':t16}); ok(s==200 and 'Fördelning' in b,'räkna ut samköp')
+        s,h,b=req(a,'/admin'); t17=csrf(b); ok('Home Assistant' in b and 'Spoolman' in b,'integrationer på adminsidan')
+        s,h,b=req(a,'/admin/spoolman',{'csrf':t17,'url':'http://8.8.8.8:7912','user_id':'1'}); ok(s==400,'Spoolman utanför lokala nätet nekas')
+        s,h,b=req(a,'/admin/homeassistant',{'csrf':t17,'host':'bad host!','port':'1883'}); ok(s==400,'ogiltig MQTT-adress nekas')
         # app och offline
         s,h,b=req(a,'/manifest.webmanifest'); ok(s==200 and json.loads(b)['lang']=='sv','manifest serveras')
         s,h,b=req(a,'/sw.js'); ok(s==200 and 'caches' in b,'service worker serveras')

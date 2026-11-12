@@ -121,6 +121,42 @@ CREATE TABLE IF NOT EXISTS prints (
     UNIQUE (user_id, source, ext_id)
 );
 CREATE INDEX IF NOT EXISTS prints_user ON prints(user_id, ts);
+CREATE TABLE IF NOT EXISTS printers (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    serial TEXT NOT NULL,
+    model TEXT,
+    mode TEXT NOT NULL DEFAULT 'cloud',  -- cloud (Bambu-molnet) | lan (direkt mot skrivaren)
+    host TEXT,                           -- skrivarens IP-adress i lokala nätet
+    access_code TEXT,                    -- skrivarens åtkomstkod (LAN), visas aldrig
+    watts INTEGER,
+    created REAL NOT NULL,
+    UNIQUE (user_id, serial)
+);
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    customer TEXT,
+    colors TEXT NOT NULL DEFAULT '[]',   -- JSON-lista med katalognycklar (färgpalett)
+    note TEXT,
+    created REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,     -- sha256 av token (själva token lagras aldrig)
+    created REAL NOT NULL,
+    last_used REAL
+);
+CREATE TABLE IF NOT EXISTS price_daily (
+    key TEXT NOT NULL,                   -- katalognyckel
+    day TEXT NOT NULL,                   -- YYYY-MM-DD
+    best INTEGER NOT NULL,               -- lägsta varupris (kr, 1 kg-förpackning) den dagen
+    PRIMARY KEY (key, day)
+);
 CREATE TABLE IF NOT EXISTS cart_shares (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,    -- sha256 av delningslänkens token (själva token lagras aldrig)
@@ -198,6 +234,10 @@ def _migrate(c):
     cols = {r[1] for r in c.execute('PRAGMA table_info(purchases)')}
     if 'weight' not in cols:
         c.execute('ALTER TABLE purchases ADD COLUMN weight INTEGER')
+    pcols = {r[1] for r in c.execute('PRAGMA table_info(prints)')}
+    for col, typ in (('reason', 'TEXT'), ('project_id', 'INTEGER')):
+        if col not in pcols:
+            c.execute(f'ALTER TABLE prints ADD COLUMN {col} {typ}')
     if 'receipt' not in cols:
         c.execute('ALTER TABLE purchases ADD COLUMN receipt TEXT')   # filnamn under /data/receipts/<användare>/
 
@@ -426,7 +466,7 @@ def add_print(user_id, ts, name, printer, hours, grams, filament, el, kwh, wear,
                         'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (user_id, ts, name[:120], printer, hours, json.dumps(grams, ensure_ascii=False), filament, el, kwh,
                          wear, total, status, source, ext_id))
-        return cur.rowcount > 0
+        return cur.lastrowid if cur.rowcount > 0 else 0
 
 
 def get_prints(user_id, since=0, limit=1000):
@@ -454,6 +494,114 @@ def restore_from(path):
         src.close()
     with _lock:
         _migrate(conn())
+
+
+# --- skrivare ---
+def list_printers(user_id=None):
+    if user_id is None:
+        return conn().execute('SELECT * FROM printers ORDER BY id').fetchall()
+    return conn().execute('SELECT * FROM printers WHERE user_id=? ORDER BY id', (user_id,)).fetchall()
+
+
+def get_printer(user_id, printer_id):
+    return conn().execute('SELECT * FROM printers WHERE id=? AND user_id=?', (printer_id, user_id)).fetchone()
+
+
+def save_printer(user_id, serial, name, model=None, mode='cloud', host=None, access_code=None, watts=None):
+    with tx() as c:
+        c.execute('INSERT INTO printers(user_id,name,serial,model,mode,host,access_code,watts,created) VALUES(?,?,?,?,?,?,?,?,?) '
+                  'ON CONFLICT(user_id,serial) DO UPDATE SET name=excluded.name, model=COALESCE(excluded.model, model), '
+                  'mode=excluded.mode, host=COALESCE(excluded.host, host), access_code=COALESCE(excluded.access_code, access_code), '
+                  'watts=COALESCE(excluded.watts, watts)',
+                  (user_id, name[:60], serial, model, mode, host, access_code, watts, time.time()))
+
+
+def update_printer(user_id, printer_id, **fields):
+    allowed = {k: v for k, v in fields.items() if k in ('name', 'mode', 'host', 'access_code', 'watts')}
+    if allowed:
+        with tx() as c:
+            c.execute(f'UPDATE printers SET {", ".join(k + "=?" for k in allowed)} WHERE id=? AND user_id=?',
+                      (*allowed.values(), printer_id, user_id))
+
+
+def delete_printer(user_id, printer_id):
+    with tx() as c:
+        c.execute('DELETE FROM printers WHERE id=? AND user_id=?', (printer_id, user_id))
+
+
+# --- projekt ---
+def list_projects(user_id):
+    return conn().execute('SELECT * FROM projects WHERE user_id=? ORDER BY created DESC', (user_id,)).fetchall()
+
+
+def get_project(user_id, project_id):
+    return conn().execute('SELECT * FROM projects WHERE id=? AND user_id=?', (project_id, user_id)).fetchone()
+
+
+def create_project(user_id, name, customer=None):
+    with tx() as c:
+        return c.execute('INSERT INTO projects(user_id,name,customer,created) VALUES(?,?,?,?)',
+                         (user_id, name[:80], (customer or '')[:120] or None, time.time())).lastrowid
+
+
+def update_project(user_id, project_id, **fields):
+    allowed = {k: v for k, v in fields.items() if k in ('name', 'customer', 'colors', 'note')}
+    if 'colors' in allowed:
+        allowed['colors'] = json.dumps(allowed['colors'], ensure_ascii=False)
+    if allowed:
+        with tx() as c:
+            c.execute(f'UPDATE projects SET {", ".join(k + "=?" for k in allowed)} WHERE id=? AND user_id=?',
+                      (*allowed.values(), project_id, user_id))
+
+
+def delete_project(user_id, project_id):
+    with tx() as c:
+        c.execute('UPDATE prints SET project_id=NULL WHERE user_id=? AND project_id=?', (user_id, project_id))
+        c.execute('DELETE FROM projects WHERE id=? AND user_id=?', (project_id, user_id))
+
+
+def update_print(user_id, print_id, **fields):
+    allowed = {k: v for k, v in fields.items() if k in ('status', 'reason', 'project_id', 'name')}
+    if allowed:
+        with tx() as c:
+            c.execute(f'UPDATE prints SET {", ".join(k + "=?" for k in allowed)} WHERE id=? AND user_id=?',
+                      (*allowed.values(), print_id, user_id))
+
+
+# --- personliga API-nycklar (genvägar, röstassistenter) ---
+def create_api_token(user_id, name, token_hash):
+    with tx() as c:
+        c.execute('INSERT INTO api_tokens(user_id,name,token_hash,created) VALUES(?,?,?,?)', (user_id, name[:60], token_hash, time.time()))
+
+
+def list_api_tokens(user_id):
+    return conn().execute('SELECT id, name, created, last_used FROM api_tokens WHERE user_id=? ORDER BY id', (user_id,)).fetchall()
+
+
+def delete_api_token(user_id, token_id):
+    with tx() as c:
+        c.execute('DELETE FROM api_tokens WHERE id=? AND user_id=?', (token_id, user_id))
+
+
+def api_token_user(token_hash):
+    r = conn().execute('SELECT id, user_id FROM api_tokens WHERE token_hash=?', (token_hash,)).fetchone()
+    if not r:
+        return None
+    with tx() as c:
+        c.execute('UPDATE api_tokens SET last_used=? WHERE id=?', (time.time(), r['id']))
+    return get_user(r['user_id'])
+
+
+# --- dagligt lägsta pris (för säsongsmönster; sparas längre än prishistoriken) ---
+def save_daily_prices(day, best_by_key):
+    with tx() as c:
+        c.executemany('INSERT INTO price_daily(key,day,best) VALUES(?,?,?) ON CONFLICT(key,day) DO UPDATE SET best=MIN(best, excluded.best)',
+                      [(k, day, int(v)) for k, v in best_by_key.items()])
+        c.execute("DELETE FROM price_daily WHERE day < date(?, '-800 days')", (day,))
+
+
+def daily_prices(key):
+    return conn().execute('SELECT day, best FROM price_daily WHERE key=? ORDER BY day', (key,)).fetchall()
 
 
 # --- inställningar per användare ---
