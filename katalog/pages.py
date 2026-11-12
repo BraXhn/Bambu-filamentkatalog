@@ -37,7 +37,8 @@ def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=Non
     nav = ''
     if user:
         items = [('/', 'Katalog', 'katalog'), ('/onskelista', 'Önskelista', 'onske'), ('/inkopslista', 'Inköpslista', 'inkop'),
-                 ('/kostnad', 'Kostnad', 'kostnad'), ('/utskrifter', 'Utskrifter', 'utskrifter'), ('/konto', 'Mitt konto', 'konto')]
+                 ('/kostnad', 'Kostnad', 'kostnad'), ('/utskrifter', 'Utskrifter', 'utskrifter'), ('/skrivare', 'Skrivare', 'skrivare'),
+                 ('/projekt', 'Projekt', 'projekt'), ('/konto', 'Mitt konto', 'konto')]
         if user['is_admin']:
             items.append(('/admin', 'Administration', 'admin'))
         links = ''.join(f'<a href="{h}"{" aria-current=page" if k == active else ""}>{t}</a>' for h, t, k in items)
@@ -111,7 +112,7 @@ Har du loggat in på en dator du inte litar på kan du logga ut överallt utom h
 <form method="post" action="/konto/logga-ut-andra"><input type="hidden" name="csrf" value="{e(csrf)}">
 <button class="btn ghost" type="submit"{' disabled' if sessions_count <= 1 else ''}>Logga ut andra enheter</button></form></section>
 {bambu}"""
-    return layout('Mitt konto', body, user, csrf, 'konto')
+    return layout('Mitt konto', body, user, csrf, 'konto', scripts=('/assets/account.js',))
 
 
 # ---------- administration ----------
@@ -165,7 +166,7 @@ def source_alerts(runs):
     return [(label[k], n, err[k]) for k, n in streak.items() if n >= ALERT_RUNS]
 
 
-def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', secret=None, backups=None):
+def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', secret=None, backups=None, integrations=None):
     running = any(r['status'] == 'running' for r in runs)
     last_done = next((r for r in runs if r['status'] != 'running'), None)
     secret_html = ''
@@ -243,7 +244,7 @@ Filen innehåller lösenordshashar och inloggningar till Bambu Lab – förvara 
 <button class="btn ghost" type="submit">Ladda ner säkerhetskopia</button></form>{backups_html(csrf, backups or [], config.BACKUP_TIME, config.BACKUP_KEEP)}</section>"""
 
     body = f"""<h1>Administration</h1><p class="lead">Användare, prisuppdatering och säkerhetskopia.</p>
-{message(msg_kind, e(msg))}{secret_html}{prices}{users_html}{backup}"""
+{message(msg_kind, e(msg))}{secret_html}{prices}{users_html}{integrations_html(csrf, integrations) if integrations else ''}{backup}"""
     return layout('Administration', body, user, csrf, 'admin', refresh=15 if running else None)
 
 
@@ -519,7 +520,7 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
     share_html = f"""<section class="card no-print"><h2>Dela listan</h2>{share_box}<div class="row">
 <form method="post" action="/inkopslista/dela">{h}<button class="btn ghost small" type="submit">{'Skapa ny länk' if shared or share_url else 'Skapa delningslänk'}</button></form>
 {f'<form method="post" action="/inkopslista/sluta-dela">{h}<button class="btn danger small" type="submit">Sluta dela</button></form>' if shared or share_url else ''}
-{_print_button()}</div></section>"""
+{_print_button()}<a class="btn ghost small" href="/samkop">Samköp med andra</a></div></section>"""
 
     edit_rows = ''
     for key, qty, pack in items:
@@ -584,13 +585,30 @@ def _purchases_html(purchases, names, csrf=''):
             f'<tbody>{rows}</tbody></table></div></details></section>')
 
 
-def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_kind='', msg=''):
+def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_kind='', msg='', notify_new=False, calendar=None):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     lead = ('<p class="lead">Färger du vill köpa senare. Sätt ett målpris (inklusive frakt) eller en minsta rabatt, '
             'så bevakas priset vid varje prisuppdatering.</p>')
+    if notify_enabled:
+        notify_html = f"""<section class="card"><h2>Avisering till mobilen</h2>
+<p class="sub">Installera appen <b>ntfy</b> (gratis, Android och iPhone), prenumerera på ett eget, svårgissat ämne och skriv in det här.
+Du får en avisering när en bevakning når ditt pris – en gång per träff, och igen bara om priset sjunker mer.
+Ämnet är inte hemligt för ntfy, så välj ett namn som inte avslöjar vem du är.</p>
+<form method="post" action="/onskelista/avisering" class="row">{h}
+<div class="field" style="max-width:360px"><label for="nt">ntfy-ämne eller adress</label>
+<input id="nt" name="target" type="text" maxlength="200" value="{e(notify or '')}" placeholder="t.ex. filament-a8k2m" autocomplete="off" spellcheck="false"></div>
+<div><button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
+<button class="btn ghost small" type="submit" name="do" value="testa">Spara och skicka test</button>
+{'<button class="btn danger small" type="submit" name="do" value="ta-bort">Stäng av</button>' if notify else ''}</div></form>
+<form method="post" action="/onskelista/nyheter" class="mt">{h}<input type="hidden" name="on" value="{'0' if notify_new else '1'}">
+<p class="sub" style="margin-bottom:8px">{'Du aviseras när Bambu Lab får nya färger eller filamenttyper.' if notify_new else 'Vill du också få en avisering när Bambu Lab får nya färger eller filamenttyper?'}
+{'' if notify else ' Ange ett ntfy-ämne ovan först.'}</p>
+<button class="btn ghost small" type="submit"{'' if notify or notify_new else ' disabled'}>{'Sluta avisera om nya färger' if notify_new else 'Avisera om nya färger'}</button></form></section>"""
+    else:
+        notify_html = ''
     if not rows:
         body = (f'<h1>Önskelista</h1>{lead}{message(msg_kind, e(msg))}<p>Lägg till färger med knappen <b>♡ Önskelista</b> '
-                f'i katalogen.</p><p><a class="btn" href="/">Till katalogen</a></p>')
+                f'i katalogen.</p><p><a class="btn" href="/">Till katalogen</a></p>{notify_html}')
         return layout('Önskelista', body, user, csrf, 'onske')
     rows = sorted(rows, key=lambda r: (not r['hit'], r['key']))
     trs = ''
@@ -607,6 +625,8 @@ def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_k
         if info['deal']:
             now += f'<br><span class="badge bad">−{info["deal"]["discount"]} %</span> <span class="muted" style="font-size:12px">{e(info["deal"]["shop"].split(" · ")[0])}</span>'
         low = _kr(r['low90']) if r['low90'] else '—'
+        if r.get('tip'):
+            now += f'<br><span class="badge run" style="white-space:normal">📅 {e(r["tip"])}</span>'
         hit = '<span class="badge ok">🔔 Ditt pris är nått</span><br>' if r['hit'] else ''
         tv = '' if not a or a['target'] is None else str(a['target'])
         dv = '' if not a or a['min_discount'] is None else str(a['min_discount'])
@@ -623,20 +643,8 @@ def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_k
              f'<th class="hide-sm">Lägst 90 dagar</th><th>Bevakning</th></tr></thead><tbody>{trs}</tbody></table></div>'
              f'<p class="muted" style="font-size:12px;margin:12px 0 0">Målpriset gäller lägsta jämförbara pris inklusive frakt (som i katalogen). '
              f'Lämna båda fälten tomma för att sluta bevaka. Priser från {e(_when(checked_at)) or "senaste sökningen"}.</p></section>')
-    if notify_enabled:
-        notify_html = f"""<section class="card"><h2>Avisering till mobilen</h2>
-<p class="sub">Installera appen <b>ntfy</b> (gratis, Android och iPhone), prenumerera på ett eget, svårgissat ämne och skriv in det här.
-Du får en avisering när en bevakning når ditt pris – en gång per träff, och igen bara om priset sjunker mer.
-Ämnet är inte hemligt för ntfy, så välj ett namn som inte avslöjar vem du är.</p>
-<form method="post" action="/onskelista/avisering" class="row">{h}
-<div class="field" style="max-width:360px"><label for="nt">ntfy-ämne eller adress</label>
-<input id="nt" name="target" type="text" maxlength="200" value="{e(notify or '')}" placeholder="t.ex. filament-a8k2m" autocomplete="off" spellcheck="false"></div>
-<div><button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
-<button class="btn ghost small" type="submit" name="do" value="testa">Spara och skicka test</button>
-{'<button class="btn danger small" type="submit" name="do" value="ta-bort">Stäng av</button>' if notify else ''}</div></form></section>"""
-    else:
-        notify_html = ''
-    body = f'<h1>Önskelista</h1>{lead}{message(msg_kind, e(msg))}{summary}{table}{notify_html}'
+    cal = message('warn', '📅 ' + e(calendar) + ' Vänta med det som inte är bråttom.') if calendar else ''
+    body = f'<h1>Önskelista</h1>{lead}{message(msg_kind, e(msg))}{summary}{cal}{table}{notify_html}'
     return layout('Önskelista', body, user, csrf, 'onske')
 
 
@@ -694,7 +702,7 @@ def _price_chart(intervals, res):
             f'<table><tbody>{rows}</tbody></table></div></details>')
 
 
-def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_kind='', msg='', live=None):
+def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_kind='', msg='', live=None, projects=()):
     from . import costcalc, energy
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     by_type = {}
@@ -751,6 +759,7 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
 <button class="btn ghost" type="submit" name="do" value="spara">Räkna ut och spara som standard</button></div>
 <section class="card"><h2>Spara eller sälj</h2>
 <div class="row"><div class="field"><label for="cname">Namn på utskriften</label><input id="cname" name="name" type="text" maxlength="120" value="{e(form.get('name', ''))}" placeholder="t.ex. Hylla till verkstan"></div>
+{f'<div class="field" style="max-width:220px"><label for="cproj">Projekt</label><select id="cproj" name="project"><option value="">Inget</option>' + ''.join(f'<option value="{p["id"]}"{" selected" if str(p["id"]) == form.get("project") else ""}>{e(p["name"])}</option>' for p in projects) + '</select></div>' if projects else ''}
 <div><button class="btn ghost" type="submit" name="do" value="logga">Spara i utskriftsloggen</button></div></div>
 <h3 class="mt" style="margin-top:22px">Offert</h3><p class="sub">Självkostnad plus marginal för misslyckade utskrifter och påslag – för utskrifter du säljer.</p>
 <div class="row"><div class="field"><label for="qcust">Kund / beskrivning</label><input id="qcust" name="customer" type="text" maxlength="120" value="{e(form.get('customer', ''))}"></div>
@@ -794,6 +803,7 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
 {f'<div class="stat"><span>Slitage</span><strong>{_num(res["wear"])} kr</strong></div>' if res['wear'] else ''}
 {f'<div class="stat"><span>Per gram</span><strong>{_num(res["per_gram"], 3)} kr</strong></div>' if res['per_gram'] else ''}</div>
 {message('warn', 'Några rader saknar pris och ingår inte i totalen – ange ett eget pris per kg.') if res['missing'] else ''}
+{''.join(message('err', f'⚠ {k.split("|")[0]} {names.get(k, "")} räcker inte: utskriften behöver {_num(need, 0)} g, du har {_num(have, 0)} g kvar enligt Bambu-biblioteket/Spoolman.') for k, need, have in res.get('shortage') or [])}
 {f'<div class="tablewrap"><table><thead><tr><th>Filament</th><th class="right">Mängd</th><th class="right">Pris</th><th class="right">Kostnad</th></tr></thead><tbody>{lines}</tbody></table></div>' if lines else ''}
 <p class="sub" style="margin:14px 0 0">El: {_hm(res['hours'])} × {_num(res['watts'], 0)} W, {_day_time(res['start'], res['now'])}–{end:%H:%M}{rng}.
 {e(res['source']) or 'Inget elpris.'}</p></section>"""
@@ -838,7 +848,8 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
 PRINT_STATUS = {'ok': '', 'failed': '<span class="badge bad">Misslyckad</span>', 'cancelled': '<span class="badge warn">Avbruten</span>'}
 
 
-def prints_page(user, csrf, prints, stats, forecast, names, has_bambu, msg_kind='', msg=''):
+def prints_page(user, csrf, prints, stats, forecast, names, has_bambu, msg_kind='', msg='', projects=()):
+    from .printlog import REASONS
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     label = lambda k: f'{e(k.split("|")[0])} · {e(names.get(k, k.split("|")[-1]))}' if k else 'Annan färg'  # noqa: E731
     y = stats['year']
@@ -854,7 +865,20 @@ def prints_page(user, csrf, prints, stats, forecast, names, has_bambu, msg_kind=
 <div class="stat"><span>Utskrifter</span><strong>{y['n']}</strong>{f'<span>{y["failed"]} misslyckade/avbrutna</span>' if y['failed'] else ''}</div>
 <div class="stat"><span>Filament</span><strong>{_num(y['grams'] / 1000, 2)} kg</strong></div>
 <div class="stat"><span>Kostnad totalt</span><strong>{_num(y['total'], 0 if y['total'] >= 100 else 2)} kr</strong></div>
-<div class="stat"><span>varav el</span><strong>{_num(y['el'], 0 if y['el'] >= 100 else 2)} kr</strong></div></div></section>"""
+<div class="stat"><span>varav el</span><strong>{_num(y['el'], 0 if y['el'] >= 100 else 2)} kr</strong></div>
+{f'<div class="stat"><span>Bortkastat i misslyckade</span><strong>{_num(y["wasted"], 0 if y["wasted"] >= 100 else 2)} kr</strong><span>{_num(y["wasted_g"], 0)} g filament</span></div>' if y['failed'] else ''}</div></section>"""
+    fails = ''
+    if stats['reasons']:
+        rr = ''.join(f'<tr><td>{e(k)}</td><td class="right">{v["n"]}</td><td class="right">{_num(v["grams"], 0)} g</td><td class="right">{_num(v["cost"])} kr</td></tr>'
+                     for k, v in sorted(stats['reasons'].items(), key=lambda kv: -kv[1]['n']))
+        ft = ''.join(f'<tr><td>{e(k)}</td><td class="right">{v["failed"]} av {v["n"]}</td><td class="right">{_num(100 * v["failed"] / v["n"], 0)} %</td></tr>'
+                     for k, v in sorted(stats['fail_types'].items(), key=lambda kv: -(kv[1]['failed'] / kv[1]['n'])) if v['n'])
+        pf = ''.join(f'<tr><td>{e(k)}</td><td class="right">{v["failed"]} av {v["n"]}</td><td class="right">{_num(100 * v["failed"] / v["n"], 0)} %</td></tr>'
+                     for k, v in stats['printers'].items() if v['n'])
+        fails = f"""<section class="card"><h2>Misslyckade utskrifter</h2><p class="sub">Ange orsak på varje misslyckad utskrift nedan, så syns var problemen finns.</p>
+<div class="tablewrap"><table><thead><tr><th>Orsak</th><th class="right">Antal</th><th class="right">Filament</th><th class="right">Kostnad</th></tr></thead><tbody>{rr}</tbody></table></div>
+<div class="row mt" style="align-items:flex-start"><div class="tablewrap" style="flex:1;min-width:260px"><table><thead><tr><th>Material</th><th class="right">Misslyckade</th><th class="right">Andel</th></tr></thead><tbody>{ft}</tbody></table></div>
+<div class="tablewrap" style="flex:1;min-width:260px"><table><thead><tr><th>Skrivare</th><th class="right">Misslyckade</th><th class="right">Andel</th></tr></thead><tbody>{pf}</tbody></table></div></div></section>"""
     months = ''.join(f'<tr><td>{e(m)}</td><td class="right">{v["n"]}</td><td class="right">{_num(v["grams"], 0)} g</td>'
                      f'<td class="right">{_num(v["total"])} kr</td></tr>' for m, v in stats['months'].items())
     colors = ''.join(
@@ -868,15 +892,17 @@ def prints_page(user, csrf, prints, stats, forecast, names, has_bambu, msg_kind=
     rows = ''
     for r in prints:
         grams = json.loads(r['grams'] or '{}')
-        rows += (f'<tr><td>{fmt_time(r["ts"])}</td><td><b>{e(r["name"])}</b> {PRINT_STATUS.get(r["status"], "")}'
+        reason = f' <span class="muted" style="font-size:12px">({e(r["reason"])})</span>' if r['reason'] else ''
+        proj = next((f' <span class="badge">{e(pr["name"])}</span>' for pr in projects if pr['id'] == r['project_id']), '')
+        rows += (f'<tr id="u{r["id"]}"><td>{fmt_time(r["ts"])}</td><td><b>{e(r["name"])}</b> {PRINT_STATUS.get(r["status"], "")}{reason}{proj}'
                  f'<br><span class="muted" style="font-size:12px">{" · ".join(f"{label(k)} {_num(g, 1)} g" for k, g in grams.items())}'
                  f'{" · " + e(r["printer"]) if r["printer"] else ""}{" · från Bambu Lab" if r["source"] == "bambu" else ""}</span></td>'
                  f'<td class="right hide-sm">{_hm(r["hours"])}</td><td class="right">{_num(r["total"])} kr'
                  f'<br><span class="muted" style="font-size:12px">el {_num(r["el"])} kr</span></td>'
-                 f'<td class="right"><form method="post" action="/utskrifter/{r["id"]}/ta-bort">{h}'
+                 f'<td class="right">{_print_edit(r, h, REASONS, projects)}<form method="post" action="/utskrifter/{r["id"]}/ta-bort" style="margin-top:6px">{h}'
                  f'<button class="btn danger small" type="submit" aria-label="Ta bort {e(r["name"])}">Ta bort</button></form></td></tr>')
     body = f"""<h1>Utskrifter</h1><p class="lead">Logg över dina utskrifter med kostnad för filament och el, och hur länge filamentet räcker.</p>
-{message(msg_kind, e(msg))}{fetch}{summary}
+{message(msg_kind, e(msg))}{fetch}{summary}{fails}
 <section class="card"><h2>Förbrukning per färg</h2><p class="sub">Prognosen bygger på de senaste {60} dagarnas utskrifter och vad som finns kvar enligt ditt Bambu-bibliotek.</p>
 <div class="tablewrap"><table><thead><tr><th>Färg</th><th class="right">Totalt</th><th class="right">Kostnad</th><th class="right">Takt</th><th class="right">Räcker</th></tr></thead><tbody>{colors}</tbody></table></div></section>
 <section class="card"><h2>Per månad</h2><div class="tablewrap"><table><thead><tr><th>Månad</th><th class="right">Utskrifter</th><th class="right">Filament</th><th class="right">Kostnad</th></tr></thead><tbody>{months}</tbody></table></div>
@@ -924,3 +950,239 @@ def backups_html(csrf, backups, backup_time, keep):
             f'<form method="post" action="/admin/sakerhetskopior/ny" style="margin-bottom:12px">{h}<button class="btn ghost small" type="submit">Säkerhetskopiera nu</button></form>'
             + (f'<div class="tablewrap"><table><thead><tr><th>Skapad</th><th class="hide-sm">Fil</th><th class="right">Storlek</th><th></th></tr></thead>'
                f'<tbody>{rows}</tbody></table></div>' if rows else '<p class="muted">Inga sparade kopior än.</p>'))
+
+
+# ---------- skrivare ----------
+def printer_cards(statuses, names, csrf):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    if not statuses:
+        return '<p class="muted">Inga skrivare tillagda än.</p>'
+    out = ''
+    for p in statuses:
+        conn = ('<span class="badge ok">Ansluten</span>' if p['connected'] else
+                f'<span class="badge bad" title="{e(p["error"] or "")}">Inte ansluten</span>' if p['error'] else '<span class="badge">Ansluter…</span>')
+        prog = ''
+        if p['state'] in ('RUNNING', 'PAUSE', 'PREPARE'):
+            pct = p['percent'] or 0
+            left = f' · {_hm((p["left"] or 0) / 60)} kvar' if p['left'] is not None else ''
+            layer = f' · lager {p["layer"]}/{p["layers"]}' if p['layers'] else ''
+            prog = (f'<p style="margin:10px 0 4px"><b>{e(p["job"] or "Utskrift")}</b>{layer}{left}</p>'
+                    f'<div class="progress" role="progressbar" aria-valuenow="{pct:.0f}" aria-valuemin="0" aria-valuemax="100"><span style="width:{pct:.0f}%"></span></div>'
+                    f'<p class="muted" style="font-size:12px;margin:4px 0 0">{pct:.0f} % klart</p>')
+            if p['live'] and p['live']['elSoFar'] is not None:
+                prog += (f'<p class="sub" style="margin:8px 0 0">El hittills ca <b>{_num(p["live"]["elSoFar"])} kr</b>, hela utskriften ca '
+                         f'{_num(p["live"]["elTotal"])} kr ({_num(p["live"]["watts"], 0)} W).</p>')
+        temps = ' · '.join(x for x in (f'munstycke {p["nozzle"]:.0f} °C' if p['nozzle'] is not None else '',
+                                        f'bädd {p["bed"]:.0f} °C' if p['bed'] is not None else '') if x)
+        trays = ''
+        for t in p['trays']:
+            sw = f'<span class="color-dot big" style="background:{e(t["color"])}"></span>' if re.fullmatch(r'#[0-9A-Fa-f]{6}', t['color'] or '') else ''
+            name = f'{e(t["key"].split("|")[0])} · {e(names.get(t["key"], ""))}' if t['key'] else e(t['type'] or '')
+            rem = f' · {t["remain"]:.0f} % kvar' if t['remain'] is not None and t['remain'] >= 0 else ''
+            trays += f'<li{" class=active" if t["active"] else ""}>{sw}<span><b>{name}</b><br><span class="muted" style="font-size:12px">{e(t["slot"])}{rem}{" · används nu" if t["active"] else ""}</span></span></li>'
+        mode = 'lokalt' if p['mode'] == 'lan' else 'via Bambu-molnet'
+        out += f"""<section class="card printer"><div class="row" style="justify-content:space-between;align-items:baseline">
+<h2>{e(p['name'])} <span class="muted" style="font-size:13px;font-weight:400">{e(p['model'] or '')} · {mode}</span></h2>{conn}</div>
+<p style="margin:6px 0 0"><b>{e(p['stateText'])}</b>{(' · ' + temps) if temps else ''}</p>{prog}
+{f'<ul class="ams">{trays}</ul>' if trays else ''}
+<details class="mt no-print"><summary>Inställningar</summary><form method="post" action="/skrivare/{p['id']}/andra" class="row mt">{h}
+<div class="field" style="max-width:190px"><label>Anslutning</label><select name="mode"><option value="cloud"{' selected' if p['mode'] == 'cloud' else ''}>Bambu-molnet</option><option value="lan"{' selected' if p['mode'] == 'lan' else ''}>Lokalt (IP)</option></select></div>
+<div class="field" style="max-width:170px"><label>IP-adress</label><input name="host" type="text" value="{e(p['host'] or '')}" placeholder="192.168.1.50"></div>
+<div class="field" style="max-width:170px"><label>Åtkomstkod</label><input name="code" type="password" autocomplete="off" placeholder="oförändrad"></div>
+<div class="field" style="max-width:140px"><label>Effekt (W)</label><input name="watts" type="text" inputmode="numeric" placeholder="auto"></div>
+<div><button class="btn ghost small" type="submit">Spara</button></div></form>
+<form method="post" action="/skrivare/{p['id']}/ta-bort" class="mt">{h}<button class="btn danger small" type="submit">Ta bort skrivaren</button></form></details></section>"""
+    return out
+
+
+def printers_page(user, csrf, statuses, names, has_bambu, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    cloud = (f'<form method="post" action="/skrivare/hamta" style="margin-bottom:18px">{h}<button class="btn" type="submit">Hämta skrivare från Bambu Lab-kontot</button></form>'
+             if has_bambu else '<p class="sub">Koppla ditt Bambu Lab-konto under <a href="/konto">Mitt konto</a> för att hitta skrivarna automatiskt, eller lägg till en skrivare lokalt nedan.</p>')
+    body = f"""<h1>Skrivare</h1><p class="lead">Status i realtid, vad som sitter i AMS och vad den pågående utskriften kostar i el.</p>
+{message(msg_kind, e(msg))}{cloud}<div id="printerCards" aria-live="polite">{printer_cards(statuses, names, csrf)}</div>
+<section class="card"><h2>Lägg till skrivare lokalt</h2>
+<p class="sub">Snabbast och fungerar utan Bambu-molnet. IP-adress och åtkomstkod finns på skrivarens skärm under nätverksinställningar
+(på A1/P1: <i>Inställningar → WLAN</i>). Serienumret finns under <i>Inställningar → Enhet</i>. Katalogen läser bara status och skickar inga kommandon.</p>
+<form method="post" action="/skrivare/ny" class="row" autocomplete="off">{h}
+<div class="field" style="max-width:200px"><label for="pn">Namn</label><input id="pn" name="name" type="text" maxlength="60" placeholder="t.ex. Verkstan"></div>
+<div class="field" style="max-width:220px"><label for="ps">Serienummer</label><input id="ps" name="serial" type="text" maxlength="32" required></div>
+<div class="field" style="max-width:170px"><label for="pi">IP-adress</label><input id="pi" name="host" type="text" maxlength="40" required placeholder="192.168.1.50"></div>
+<div class="field" style="max-width:150px"><label for="pc">Åtkomstkod</label><input id="pc" name="code" type="password" maxlength="16" required></div>
+<div><button class="btn ghost" type="submit">Lägg till</button></div></form></section>"""
+    return layout('Skrivare', body, user, csrf, 'skrivare', scripts=('/assets/printers.js',))
+
+
+def _print_edit(r, h, reasons, projects):
+    st = ''.join(f'<option value="{v}"{" selected" if r["status"] == v else ""}>{t}</option>'
+                 for v, t in (('ok', 'Lyckades'), ('failed', 'Misslyckades'), ('cancelled', 'Avbruten')))
+    rs = '<option value="">Orsak…</option>' + ''.join(f'<option{" selected" if r["reason"] == x else ""}>{e(x)}</option>' for x in reasons)
+    pj = '<option value="">Inget projekt</option>' + ''.join(
+        f'<option value="{p["id"]}"{" selected" if r["project_id"] == p["id"] else ""}>{e(p["name"])}</option>' for p in projects)
+    return (f'<details class="no-print"><summary>Ändra</summary><form method="post" action="/utskrifter/{r["id"]}/andra" class="print-edit">{h}'
+            f'<select name="status" aria-label="Resultat">{st}</select><select name="reason" aria-label="Orsak">{rs}</select>'
+            f'<select name="project" aria-label="Projekt">{pj}</select><button class="btn ghost small" type="submit">Spara</button></form></details>')
+
+
+# ---------- projekt ----------
+def projects_page(user, csrf, projects, sums, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    rows = ''.join(
+        f'<tr><td><a href="/projekt/{p["id"]}"><b>{e(p["name"])}</b></a>{"<br><span class=muted style=font-size:12px>" + e(p["customer"]) + "</span>" if p["customer"] else ""}</td>'
+        f'<td class="right">{len(json.loads(p["colors"] or "[]"))}</td><td class="right">{sums.get(p["id"], {}).get("n", 0)}</td>'
+        f'<td class="right">{_num(sums.get(p["id"], {}).get("total", 0))} kr</td></tr>' for p in projects)
+    body = f"""<h1>Projekt</h1><p class="lead">Färgpalett per projekt och vad utskrifterna kostar – per projekt eller kund, med export till CSV.</p>
+{message(msg_kind, e(msg))}
+<section class="card"><h2>Nytt projekt</h2><form method="post" action="/projekt/ny" class="row">{h}
+<div class="field"><label for="pjn">Namn</label><input id="pjn" name="name" type="text" maxlength="80" required></div>
+<div class="field"><label for="pjc">Kund (valfritt)</label><input id="pjc" name="customer" type="text" maxlength="120"></div>
+<div><button class="btn" type="submit">Skapa</button></div></form></section>
+{f'<section class="card"><div class="tablewrap"><table><thead><tr><th>Projekt</th><th class="right">Färger</th><th class="right">Utskrifter</th><th class="right">Kostnad</th></tr></thead><tbody>{rows}</tbody></table></div></section>' if rows else ''}"""
+    return layout('Projekt', body, user, csrf, 'projekt')
+
+
+def project_page(user, csrf, p, palette, prints, names, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    by_type = {}
+    for k in sorted(names, key=lambda k: (k.split('|')[0], names[k])):
+        by_type.setdefault(k.split('|')[0], []).append(k)
+    opts = ''.join(f'<optgroup label="{e(t)}">' + ''.join(f'<option value="{e(k)}">{e(t)} · {e(names[k])}</option>' for k in ks) + '</optgroup>'
+                   for t, ks in by_type.items())
+
+    def swatch(d, size='big'):
+        hx = [x[:7] for x in d.get('hex') or [] if re.fullmatch(r'#[0-9A-Fa-f]{6,8}', x)]
+        bg = f'linear-gradient(120deg,{",".join(hx)})' if len(hx) > 1 else (hx[0] if hx else '#ccc')
+        return f'<span class="swatch-tile {size}" style="background:{bg}"></span>'
+    tiles = ''
+    for c in palette:
+        d = c['item']
+        status = (f'<span class="badge ok">Har{" · " + _num(c["grams"], 0) + " g" if c["grams"] else ""}</span>' if c['owned'] else
+                  '<span class="badge warn">Saknas</span>')
+        price = f'<br><span class="muted" style="font-size:12px">från {_kr(c["best"][1])} inkl. frakt</span>' if c['best'] and not c['owned'] else ''
+        similar = ''.join(f'<li>{swatch(x, "small")} {e(x["type"])} · {e(x["name"])} <span class="muted">ΔE {dist}</span></li>' for dist, x in c['similar'])
+        tiles += (f'<div class="palette-tile">{swatch(d)}<div><b>{e(d["name"])}</b><br><span class="muted" style="font-size:12px">{e(d["type"])} · {e(d["code"] or "")}</span><br>'
+                  f'{status}{price}' + (f'<p class="sub" style="margin:6px 0 0">Liknande som du har:</p><ul class="similar">{similar}</ul>' if similar else '') +
+                  f'<form method="post" action="/projekt/{p["id"]}/ta-bort-farg">{h}<input type="hidden" name="key" value="{e(c["key"])}">'
+                  f'<button class="btn danger small" type="submit">Ta bort</button></form></div></div>')
+    missing = sum(not c['owned'] for c in palette)
+    strip = ''.join(swatch(c['item'], 'strip') for c in palette)
+    total = sum(r['total'] for r in prints)
+    prow = ''.join(f'<tr><td>{fmt_time(r["ts"])[:10]}</td><td>{e(r["name"])} {PRINT_STATUS.get(r["status"], "")}</td><td class="right">{_num(r["total"])} kr</td></tr>'
+                   for r in prints)
+    body = f"""<p class="no-print"><a href="/projekt">← Alla projekt</a></p><h1>{e(p['name'])}</h1>
+{f'<p class="lead">{e(p["customer"])}</p>' if p['customer'] else ''}{message(msg_kind, e(msg))}
+<section class="card"><h2>Färgpalett</h2>{f'<div class="palette-strip">{strip}</div>' if strip else ''}
+<div class="palette">{tiles or '<p class="muted">Inga färger än.</p>'}</div>
+<form method="post" action="/projekt/{p['id']}/farg" class="row mt no-print">{h}<div class="field"><label for="pk">Lägg till färg</label><select id="pk" name="key">{opts}</select></div>
+<div><button class="btn ghost" type="submit">Lägg till</button></div></form>
+{f'<form method="post" action="/projekt/{p["id"]}/saknade" class="mt no-print">{h}<button class="btn" type="submit">Lägg {missing} saknade färger i inköpslistan</button></form>' if missing else ''}</section>
+<section class="card"><div class="row" style="justify-content:space-between;align-items:baseline"><h2>Utskrifter i projektet</h2><strong>{_num(total)} kr</strong></div>
+<p class="sub">Koppla utskrifter till projektet under <a href="/utskrifter">Utskrifter</a> (Ändra) eller när du sparar från kostnadsräknaren.</p>
+{f'<div class="tablewrap"><table><tbody>{prow}</tbody></table></div><p class="mt"><a class="btn ghost small" href="/projekt/{p["id"]}.csv">Exportera till CSV (fakturaunderlag)</a> <button class="btn ghost small no-print" type="button" data-print>Skriv ut</button></p>' if prow else ''}</section>
+<section class="card no-print"><details><summary>Ändra projektet</summary><form method="post" action="/projekt/{p['id']}/andra" class="mt">{h}
+<div class="row"><div class="field"><label>Namn</label><input name="name" type="text" maxlength="80" value="{e(p['name'])}"></div>
+<div class="field"><label>Kund</label><input name="customer" type="text" maxlength="120" value="{e(p['customer'] or '')}"></div></div>
+<div class="field mt"><label>Anteckning</label><input name="note" type="text" maxlength="2000" value="{e(p['note'] or '')}"></div>
+<button class="btn ghost small mt" type="submit">Spara</button></form>
+<form method="post" action="/projekt/{p['id']}/ta-bort" class="mt">{h}<button class="btn danger small" type="submit">Ta bort projektet</button></form></details></section>"""
+    return layout(p['name'], body, user, csrf, 'projekt', scripts=('/assets/print.js',))
+
+
+# ---------- samköp ----------
+def groupbuy_page(user, csrf, parts, names, result, catalog_names, allowed, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    chosen = set(result['ids']) if result else {user['id']}
+    boxes = ''.join(f'<label class="check"><input type="checkbox" name="user" value="{p["id"]}"{" checked" if p["id"] in chosen else ""}'
+                    f'{" disabled checked" if p["id"] == user["id"] else ""}> {e(p["username"])}{" (du)" if p["id"] == user["id"] else ""}</label>'
+                    for p in parts)
+    me_hidden = f'<input type="hidden" name="user" value="{user["id"]}">'
+    consent = (f'<form method="post" action="/samkop/tillat" class="mt">{h}<input type="hidden" name="on" value="{"0" if allowed else "1"}">'
+               f'<p class="sub" style="margin-bottom:8px">{"Andra användare kan ta med din inköpslista i sina samköp." if allowed else "Din inköpslista kan inte tas med i andras samköp."}</p>'
+               f'<button class="btn ghost small" type="submit">{"Sluta tillåta samköp" if allowed else "Tillåt samköp med min lista"}</button></form>')
+    out = ''
+    if result:
+        pl, people = result['plan'], result['people']
+        prow = ''.join(
+            f'<tr><td><b>{e(names.get(uid, "?"))}</b><br><span class="muted" style="font-size:12px">{p["units"]} st · {e(", ".join(p["shops"]))}</span></td>'
+            f'<td class="right">{_kr(p["goods"])}</td><td class="right">{_kr(p["shared"])}</td><td class="right"><b>{_kr(p["total"])}</b></td>'
+            f'<td class="right">{_kr(p["alone"])}{' · <span class="badge ok">sparar ' + _kr(p["alone"] - p["total"]) + '</span>' if p["alone"] - p["total"] > 1 else ''}</td></tr>'
+            for uid, p in people.items())
+        shops = ''
+        for sh in pl['shops']:
+            lines = ''.join(f'<li>{l["qty"]} × {e(l["key"].split("|")[0])} · {e(catalog_names.get(l["key"], ""))} – '
+                            f'{e(", ".join(sorted({names.get(o, "?") for o in l.get("owners", []) if o})))} '
+                            f'<a href="{_safe_href(l["offer"].get("url"))}" target="_blank" rel="noopener">Köp ↗</a></li>' for l in sh['lines'])
+            shops += (f'<section class="card"><div class="row" style="justify-content:space-between"><h2>{e(sh["shop"])}</h2><strong>{_kr(sh["total"])}</strong></div>'
+                      f'<p class="sub">Frakt {_kr(sh["shipping"])}{" · mängdrabatt −" + _kr(sh["discount"]) if sh.get("discount") else ""}. {e(sh["note"])}</p>'
+                      f'<ul style="margin:0;padding-left:18px;line-height:1.9">{lines}</ul></section>')
+        out = (f'<section class="card"><h2>Fördelning</h2><div class="stats"><div class="stat"><span>Samköp totalt</span><strong>{_kr(pl["totals"]["total"])}</strong></div>'
+               f'<div class="stat"><span>Om alla köper själva</span><strong>{_kr(sum(p["alone"] for p in people.values()))}</strong></div></div>'
+               f'<div class="tablewrap"><table><thead><tr><th>Person</th><th class="right">Varor</th><th class="right">Andel frakt m.m.</th><th class="right">Att betala</th><th class="right">Själv</th></tr></thead>'
+               f'<tbody>{prow}</tbody></table></div><p class="muted" style="font-size:12px;margin:10px 0 0">Varje person betalar sina varor; frakt och köparskydd delas efter varuvärde per butik.</p></section>{shops}')
+    body = f"""<h1>Samköp</h1><p class="lead">Lägg ihop inköpslistor med andra användare så att fri frakt och mängdrabatter nås tillsammans.</p>
+{message(msg_kind, e(msg))}<section class="card"><h2>Vilka är med?</h2>
+<form method="post" action="/samkop/rakna">{h}{me_hidden}<div class="checks">{boxes}</div>
+{'' if len(parts) > 1 else '<p class="muted">Ingen annan har tillåtit samköp än.</p>'}<button class="btn mt" type="submit">Räkna ut samköp</button></form>{consent}</section>{out}"""
+    return layout('Samköp', body, user, csrf, 'inkop')
+
+
+def api_tokens_section(csrf, tokens, new_token, base_url, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    rows = ''.join(f'<tr><td>{e(t["name"])}</td><td class="hide-sm">{fmt_time(t["created"])}</td><td>{fmt_rel(t["last_used"])}</td>'
+                   f'<td class="right"><form method="post" action="/konto/api-nyckel/{t["id"]}/ta-bort">{h}<button class="btn danger small" type="submit">Ta bort</button></form></td></tr>'
+                   for t in tokens)
+    shown = (f'<p><input type="text" readonly value="{e(new_token)}" aria-label="Ny API-nyckel" style="width:100%;font-family:monospace"></p>'
+             if new_token else '')
+    ex = e(base_url)
+    return f"""<section class="card" id="api"><h2>Genvägar och röstassistenter</h2>
+<p class="sub">Skapa en personlig API-nyckel och fråga katalogen från iOS Genvägar, Android (HTTP Shortcuts/Tasker) eller Home Assistant.
+Nyckeln ger bara läsåtkomst till dina egna uppgifter. Svaret är en mening som Siri eller Google kan läsa upp (lägg till <code>?format=json</code> för JSON).</p>
+{message(msg_kind, e(msg))}{shown}
+<ul style="font-size:13px;line-height:1.8;margin:0 0 14px;padding-left:18px">
+<li><code>{ex}/api/v1/filament?q=svart pla</code> – hur mycket som finns kvar och hur länge det räcker</li>
+<li><code>{ex}/api/v1/elpris</code> – elpriset nu och lägst närmaste 12 timmarna</li>
+<li><code>{ex}/api/v1/skrivare</code> – vad skrivarna gör just nu</li>
+<li><code>{ex}/api/v1/sammanfattning</code> – bevakningar, snart slut och inköpslistan</li></ul>
+<p class="sub">Skicka nyckeln i rubriken <code>Authorization: Bearer &lt;nyckel&gt;</code>.</p>
+{f'<div class="tablewrap"><table><thead><tr><th>Namn</th><th class="hide-sm">Skapad</th><th>Senast använd</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>' if rows else ''}
+<form method="post" action="/konto/api-nyckel" class="row mt">{h}<div class="field" style="max-width:280px"><label for="tkn">Namn på nyckeln</label>
+<input id="tkn" name="name" type="text" maxlength="60" placeholder="t.ex. iPhone Genvägar"></div><div><button class="btn ghost" type="submit">Skapa API-nyckel</button></div></form></section>"""
+
+
+def data_section(csrf):
+    return f"""<section class="card" id="data"><h2>Exportera och importera</h2>
+<p class="sub">Alla dina uppgifter (markeringar, önskelista och bevakningar, inköpslista, köp, utskrifter, projekt och inställningar utan lösenord och nycklar)
+som JSON för att flytta till en annan server, eller som CSV-filer för Excel. Importen lägger till och uppdaterar – inget tas bort.</p>
+<div class="row"><a class="btn ghost" href="/konto/export.json">Exportera som JSON</a><a class="btn ghost" href="/konto/export.zip">Exportera som CSV (zip)</a></div>
+<div class="row mt"><div class="field"><label for="importFile">Importera från JSON-export</label><input id="importFile" type="file" accept="application/json,.json" data-csrf="{e(csrf)}"></div></div>
+<p id="importStatus" class="muted" role="status" style="font-size:13px"></p></section>"""
+
+
+def integrations_html(csrf, it):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    ha, sm = it['ha'], it['spoolman']
+    users = lambda cur: ''.join(f'<option value="{i}"{" selected" if str(i) == str(cur) else ""}>{e(n)}</option>' for i, n in it['users'])  # noqa: E731
+    st = sm.get('status') or {}
+    st_html = (f'<p class="muted" style="font-size:13px">Senaste synk {fmt_rel(st.get("ts"))}: {e(st.get("msg", ""))}</p>' if st else '')
+    return f"""<section class="card" id="integrationer"><h2>Home Assistant</h2>
+<p class="sub">Skickar sensorer (elpris nu, skrivarnas status och elkostnad, filament kvar per färg, antal som snart tar slut) till Home Assistant
+via MQTT med automatisk upptäckt, var 5:e minut. Händelser (målpris nått, nya färger) skickas till ämnet <code>katalog/event</code> för automationer.
+Port 8883 används med TLS. Lämna adressen tom för att stänga av.</p>
+<form method="post" action="/admin/homeassistant" autocomplete="off">{h}<div class="row">
+<div class="field"><label>MQTT-broker (adress)</label><input name="host" type="text" value="{e(ha['host'] or '')}" placeholder="t.ex. 192.168.1.20"></div>
+<div class="field" style="max-width:110px"><label>Port</label><input name="port" type="text" inputmode="numeric" value="{e(str(ha['port']))}"></div>
+<div class="field" style="max-width:200px"><label>Användarnamn</label><input name="user" type="text" value="{e(ha['user'] or '')}"></div>
+<div class="field" style="max-width:200px"><label>Lösenord</label><input name="password" type="password" placeholder="{'oförändrat' if ha['password'] else ''}"></div></div>
+<div class="row mt"><div class="field" style="max-width:220px"><label>Vems data</label><select name="user_id"><option value="">Välj…</option>{users(ha['user_id'])}</select></div>
+<div class="field" style="max-width:220px"><label>Upptäcktsprefix</label><input name="prefix" type="text" value="{e(ha['prefix'])}"></div>
+<div><button class="btn ghost small" type="submit">Spara</button></div></div></form>
+<form method="post" action="/admin/homeassistant/testa" class="mt">{h}<button class="btn ghost small" type="submit">Skicka sensorer nu</button></form>
+<h2 class="mt" style="margin-top:26px">Spoolman</h2>
+<p class="sub">Hämtar spolarna i din Spoolman-server och visar dem som ”Jag har” med gram kvar. Kan också skicka spolarna i Bambu-biblioteket till Spoolman
+(skapar tillverkare, filament och spolar och uppdaterar gram kvar). Synkas med Bambu-synken. Spoolman måste ligga i det lokala nätet.</p>
+<form method="post" action="/admin/spoolman">{h}<div class="row">
+<div class="field"><label>Spoolman-adress</label><input name="url" type="text" value="{e(sm['url'])}" placeholder="http://192.168.1.10:7912"></div>
+<div class="field" style="max-width:220px"><label>Vems katalog</label><select name="user_id"><option value="">Välj…</option>{users(sm['user_id'])}</select></div></div>
+<label class="check mt"><input type="checkbox" name="push" value="1"{' checked' if sm['push'] else ''}> Skicka även Bambu-bibliotekets spolar till Spoolman</label>
+<div class="mt"><button class="btn ghost small" type="submit">Spara</button></div></form>
+<form method="post" action="/admin/spoolman/synka" class="mt">{h}<button class="btn ghost small" type="submit">Synka med Spoolman nu</button></form>{st_html}</section>"""

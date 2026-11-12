@@ -43,6 +43,14 @@ commit-meddelanden och svar till användaren är på svenska.
   typ + magiska byte kontrolleras), `GET /kvitto/<id>` bara för ägaren.
 - PWA: `dist/manifest.webmanifest` och `dist/sw.js` (nätet först, cachar bara sida/skript/data.json/offers.json/assets).
   Tibber Pulse: `energy.tibber_live` med minimal WebSocket-klient (`_WS`, bara `*.tibber.com`).
+- `katalog/mqtt.py` – minimal MQTT 3.1.1-klient. `katalog/printers.py` – en tråd per skrivare (LAN: port 8883, bblp + åtkomstkod,
+  självsignerat cert; moln: `u_<uid>` + Bambu-token mot `us.mqtt.bambulab.com`), slår ihop rapporter, status + AMS + elkostnad.
+  Tester mot `tests/fake_mqtt.py` (`KATALOG_MQTT_TEST_PLAIN=1`, `KATALOG_MQTT_TEST_PORT`). LAN-IP måste vara privat.
+- `katalog/homeassistant.py` (MQTT-upptäckt, inställt i settings `ha_*`), `katalog/spoolman.py` (bara privata adresser, inga omdirigeringar),
+  `katalog/newcolors.py` (Bambu Studios färgtabell, `state/new_colors.json`), `katalog/season.py` (tabell `price_daily`),
+  `katalog/groupbuy.py` (samköp, pref `samkop_ok`), `katalog/dataio.py` (export/import utan hemligheter), `katalog/colors.py` (ΔE).
+- Personliga API-nycklar (`api_tokens`, bara hash, prefix `kat_`) gäller bara `/api/v1/*` och `/api/printers` via `api_user()`.
+- Tabeller även: printers, projects, api_tokens, price_daily; prints har `reason` och `project_id`.
 - `katalog/history.py` – prishistorik per färg för diagrammet (`/api/history`), läser `state/price_history.json`.
 - `/delad/<token>` visar en inköpslista utan inloggning (skrivskyddad). Serverrenderade sidor får bara skript
   från `/assets/` (t.ex. `print.js`), aldrig inline.
