@@ -187,6 +187,61 @@ def get_spools(token, region='global'):
     return spools
 
 
+# ---------------------------------------------------------------- utskriftshistorik
+TASK_PAGE = 50
+TASK_MAX = 500
+
+
+def get_tasks(token, region='global', limit=TASK_MAX):
+    """Utskrifter från Bambu-molnet (nyast först): titel, start, tid, vikt och AMS-fack med färg och filament-id."""
+    tasks, offset = [], 0
+    while len(tasks) < limit:
+        status, _, raw = _request('GET', API[region] + f'/v1/user-service/my/tasks?offset={offset}&limit={TASK_PAGE}', token=token)
+        if status == 401:
+            raise TokenExpired('Inloggningen hos Bambu Lab har gått ut. Koppla kontot igen.')
+        if status != 200:
+            raise BambuError(f'Kunde inte hämta utskriftshistoriken (HTTP {status}).')
+        data = _json(raw)
+        hits = [h for h in (data.get('hits') or []) if isinstance(h, dict)]
+        tasks += hits
+        offset += len(hits)
+        total = data.get('total')
+        if len(hits) < TASK_PAGE or (isinstance(total, int) and offset >= total):
+            break
+    return tasks[:limit]
+
+
+# ---------------------------------------------------------------- skrivare
+MQTT_HOSTS = {'global': 'us.mqtt.bambulab.com', 'china': 'cn.mqtt.bambulab.com'}
+
+
+def get_devices(token, region='global'):
+    """Skrivare kopplade till kontot: [{'serial', 'name', 'model', 'online', 'access_code'}]."""
+    status, _, raw = _request('GET', API[region] + '/v1/iot-service/api/user/bind', token=token)
+    if status == 401:
+        raise TokenExpired('Inloggningen hos Bambu Lab har gått ut. Koppla kontot igen.')
+    if status != 200:
+        raise BambuError(f'Kunde inte hämta skrivarna (HTTP {status}).')
+    out = []
+    for d in _json(raw).get('devices') or []:
+        if isinstance(d, dict) and re.fullmatch(r'[A-Za-z0-9]{6,32}', str(d.get('dev_id') or '')):
+            out.append({'serial': d['dev_id'], 'name': str(d.get('name') or d['dev_id'])[:60],
+                        'model': str(d.get('dev_product_name') or d.get('dev_model_name') or '')[:30],
+                        'online': bool(d.get('online')), 'access_code': str(d.get('dev_access_code') or '')[:20]})
+    return out
+
+
+def get_uid(token, region='global'):
+    """Användar-id för Bambu-molnets MQTT (användarnamnet är u_<uid>)."""
+    status, _, raw = _request('GET', API[region] + '/v1/design-user-service/my/preference', token=token)
+    if status == 401:
+        raise TokenExpired('Inloggningen hos Bambu Lab har gått ut. Koppla kontot igen.')
+    uid = _json(raw).get('uid') if status == 200 else None
+    if not uid:
+        raise BambuError('Kunde inte läsa användar-id från Bambu Lab.')
+    return str(uid)
+
+
 # ---------------------------------------------------------------- färgkoder
 def _hex6(value):
     v = str(value or '').strip().lstrip('#').upper()
@@ -197,13 +252,14 @@ def _color_key(colors):
     return tuple(sorted({h for h in (_hex6(c) for c in colors or []) if h}))
 
 
-def color_db():
+def color_db(max_age=None):
     """Bambu Studios publika färgkodstabell, hämtad vid behov och cachad en vecka i /data/state."""
+    max_age = COLOR_DB_MAX_AGE if max_age is None else max_age
     path = config.STATE_DIR / 'bambu_color_codes.json'
     cached = None
     try:
         cached = json.loads(path.read_text(encoding='utf-8'))
-        if time.time() - path.stat().st_mtime < COLOR_DB_MAX_AGE:
+        if time.time() - path.stat().st_mtime < max_age:
             return cached
     except (OSError, ValueError):
         pass
@@ -320,11 +376,18 @@ def sync_user(user_id):
         db.save_bambu_sync(user_id, 'error', str(e), token=link['token'])
         return False, str(e)
     db.save_bambu_sync(user_id, 'ok', matched=matched, unmatched=unmatched, token=link['token'])
+    imported = ''
+    try:   # utskriftshistoriken är en bonus: fel här ska inte göra synken misslyckad
+        from . import printlog
+        k = printlog.import_bambu(user_id, link)
+        imported = f' {k} nya utskrifter hämtade.' if k else ''
+    except Exception as ex:  # noqa: BLE001
+        print(f'[bambu] utskriftshistorik för användare {user_id}: {ex}', flush=True)
     n = sum(m['spools'] for m in matched.values())
     total = n + len(unmatched)
     msg = f'{total} {"spole" if total == 1 else "spolar"} i biblioteket: {n} kopplade till {len(matched)} ' \
           f'{"färg" if len(matched) == 1 else "färger"} i katalogen'
-    return True, msg + (f', {len(unmatched)} utan motsvarighet i katalogen.' if unmatched else '.')
+    return True, msg + (f', {len(unmatched)} utan motsvarighet i katalogen.' if unmatched else '.') + imported
 
 
 def sync_all(log=print):

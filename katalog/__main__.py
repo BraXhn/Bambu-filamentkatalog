@@ -126,6 +126,8 @@ def serve():
     signal.signal(signal.SIGINT, stop)
     if not err:
         scheduler.start()
+        from . import printers
+        printers.start_all()   # skrivarstatus via MQTT i bakgrunden
     try:
         srv.serve_forever(poll_interval=0.5)
     finally:

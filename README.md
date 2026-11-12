@@ -8,7 +8,32 @@ Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och an
 - **Budget:** ange ett maxbelopp på inköpslistan. Sidan visar då vad du kan köpa nu och vad som kan vänta – i första hand det som inte är på rea just nu och är dyrast.
 - **Dela och skriv ut:** skapa en länk som visar inköpslistan utan inloggning (skrivskyddad, t.ex. för någon som beställer åt dig), eller skriv ut den med butikslänkarna utskrivna. En ny länk gör den gamla ogiltig, och delningen kan stängas av.
 - **Prishistorik:** prisdialogen visar ett diagram över lägsta varupris per butik och förpackning de senaste 90 dagarna, med tabellvy.
-- **Önskelista:** markera färger du vill testa senare och filtrera fram dem med knappen *Önskelista*. Prisrad och rabatter syns som vanligt.
+- **Önskelista med prisbevakning:** markera färger du vill köpa senare. På sidan *Önskelista* sätter du ett målpris (inklusive frakt) eller en minsta rabatt per färg. Efter varje prisuppdatering kontrolleras bevakningarna; träffar visas överst i katalogen, på korten och på önskelistan, och kan aviseras till mobilen via [ntfy](https://ntfy.sh) (en gång per träff, igen bara om priset sjunker mer).
+- **Bästa tid att köpa:** prisraden, prisdialogen, inköpslistan och önskelistan visar *Lägsta på 90 dagar* när dagens pris är det lägsta för erbjudandet (minst 14 dagars historik), eller *Brukar kosta ca X kr* när priset är minst 8 % över det typiska de senaste 30 dagarna.
+- **Köpt:** knappen *✓ Köpt här* på inköpslistan räknar av butikens rader, markerar färgerna under *Jag har* och sparar köpet i en köphistorik med vad du betalat i år.
+- **Jämför färger:** välj 2–4 färger med *⇄ Jämför* och se färgprov, färgnummer, HEX, lägsta pris, rabatt och vad du har sida vid sida.
+- **Kostnadsräknare:** sidan *Kostnad* räknar ut vad en utskrift kostar. Ange gram per färg och tid från slicern, eller läs in en `.gcode.3mf`/`.gcode` från Bambu Studio eller OrcaSlicer (filen läses bara i webbläsaren och färgerna kopplas till katalogen automatiskt). Filamentet räknas efter lägsta pris nu (med eller utan frakt), vad du betalade senast (från *✓ Köpt här*) eller eget pris per kg. Elen räknas per kvart eller timme under utskriften från **Tibber** (ditt eget pris, med ditt API-token), **spotpris från elprisetjustnu.se** (elområde SE1–SE4, valfri moms) eller ett fast pris, plus ett valfritt tillägg per kWh för nätavgift, energiskatt och påslag. Sidan visar elpriset som diagram och föreslår billigaste starttid bland kända priser (morgondagens publiceras runt kl. 13). Skrivarval fyller i en ungefärlig medeleffekt (A1 mini–H2D); slitage per timme kan läggas till.
+- **Utskriftslogg:** spara en uträkning från kostnadsräknaren med *Spara i utskriftsloggen*, eller låt utskrifterna hämtas automatiskt från ditt Bambu Lab-konto (vid varje Bambu-synk och med *Hämta utskrifter från Bambu Lab*). Sidan *Utskrifter* visar alla utskrifter med kostnad, summor i år (inklusive misslyckade), per månad, per färg och per skrivare. Importerade utskrifter räknas med dina standardvärden i kostnadsräknaren och spotpriset för dagen.
+- **Förbrukning och prognos:** utifrån de senaste 60 dagarnas utskrifter och gram kvar i Bambu-biblioteket visas *räcker ca N dagar* per färg i katalogen och på *Utskrifter*. Färger som räcker mindre än två veckor märks *Snart slut*.
+- **Offert:** kostnadsräknaren gör en utskrivbar offert med påslag, marginal för misslyckade utskrifter, valfri moms och avrundning.
+- **Kvitton:** lägg till ett foto eller en PDF av kvittot på varje köp i köphistoriken (bilder förminskas i webbläsaren, högst 3 MB). Kvitton ingår i säkerhetskopian.
+- **Installerbar app och offline:** katalogen kan installeras på hemskärmen (*Lägg till på hemskärmen* / *Installera app*) och visar katalogen och de senast hämtade priserna även utan nät. Kräver https (t.ex. via Cloudflare Tunnel). Cachen töms vid utloggning.
+- **Skanna etikett:** knappen *📷 Skanna* läser streckkoden eller QR-koden på spolen eller kartongen med kameran (Chrome på Android, Edge) och söker fram färgen via färgnummer eller Bambus artikelnummer (t.ex. A00-K0). I andra webbläsare skriver du numret.
+- **Just nu (Tibber/spotpris):** kostnadsräknaren visar elpriset just nu, lägsta pris de närmaste 12 timmarna och föreslår att vänta om priset sjunker minst 15 % inom 6 timmar. Med Tibber Pulse eller Watty visas också vad hemmet drar just nu.
+- **Skrivare i realtid:** sidan *Skrivare* visar status, procent klart, tid kvar, lager, temperaturer och vad den pågående utskriften kostar i el. Skrivarna hämtas från ditt Bambu Lab-konto (via Bambu-molnet) eller läggs till lokalt med IP-adress, serienummer och åtkomstkod (snabbare och utan molnet; containern måste nå skrivaren i det lokala nätet, port 8883). Katalogen läser bara status och skickar inga kommandon. När en utskrift blir klar hämtas den till utskriftsloggen.
+- **I AMS:** vad som sitter i varje AMS-fack visas på sidan *Skrivare* (med färg och procent kvar) och märks *I AMS* på färgerna i katalogen.
+- **Räcker filamentet?** kostnadsräknaren varnar om en färg inte räcker till utskriften enligt Bambu-biblioteket eller Spoolman.
+- **Felloggning:** markera en utskrift som misslyckad med orsak (lossnade, spaghetti, igensatt munstycke m.fl.). *Utskrifter* visar misslyckanden per orsak, material och skrivare och vad de kostat.
+- **Projekt:** färgpalett per projekt med vad du har och vad som saknas (och liknande färger du redan har), *Lägg saknade i inköpslistan*, utskrifter kopplade till projektet med summa och CSV-export som fakturaunderlag. Ange kund för kostnad per kund.
+- **Närmaste färg:** *🎨 Närmaste färg* i katalogen hittar närmaste färger till en HEX-kod, en vald färg eller en punkt i ett foto (färger du har visas först).
+- **Nya färger:** katalogen bevakar Bambu Studios färgtabell och märker nya färger *Nytt* i 60 dagar. Filtret *Nytt* visar även färger som Bambu Lab har men katalogen inte har än. Avisering via ntfy ställs in på *Önskelista*.
+- **Bästa tid att köpa:** det lägsta priset per färg sparas varje dag (cirka två år). Prisdialogen och önskelistan visar *Brukar bli billigare i december* när historiken visar ett mönster, när priset är bland årets lägsta, och kända reaperioder (Black Friday, mellandagsrean).
+- **Samköp:** lägg ihop inköpslistor med andra användare (som tillåtit det) så att fri frakt och mängdrabatter nås tillsammans. Varje person ser vad hen betalar och vad det hade kostat att köpa själv.
+- **Home Assistant:** sensorer via MQTT med automatisk upptäckt (elpris nu, skrivarstatus och elkostnad, filament kvar per färg, antal som snart tar slut) och händelser på ämnet `katalog/event` (målpris nått, nya färger). Ställs in under *Administration*.
+- **Genvägar och röstassistenter:** personliga API-nycklar under *Mitt konto* ger svar som Siri/Google kan läsa upp: `/api/v1/filament?q=svart pla`, `/api/v1/elpris`, `/api/v1/skrivare`, `/api/v1/sammanfattning` (lägg till `?format=json` för JSON).
+- **Export och import:** under *Mitt konto* exporteras all din data som JSON (för flytt) eller CSV (för Excel), och en JSON-export kan importeras (lägger till, tar inte bort).
+- **Spoolman:** hämta spolar från din Spoolman-server och visa dem som *Jag har* med gram kvar, och skicka valfritt Bambu-bibliotekets spolar till Spoolman. Ställs in under *Administration* (Spoolman måste ligga i det lokala nätet).
+- **Mörkt läge:** följer telefonens eller datorns inställning, på alla sidor.
 - **Billigast och erbjudanden:** sortera på lägsta aktuella pris eller största rabatt, och filtrera fram aktuella erbjudanden med rabatt i procent mot ordinarie pris.
 - **Användare:** varje användare har sina egna ”Jag har detta filament”-markeringar, sparade på kontot och synliga på alla enheter.
 - **Synk från Bambu Lab:** koppla ditt Bambu Lab-konto så markeras spolarna i ditt filamentbibliotek automatiskt som ”Jag har”, med gram kvar per färg. Färger med lite kvar (under 200 g, valbart) märks *Snart slut* och kan läggas i inköpslistan med ett klick.
@@ -158,6 +183,11 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 | `SESSION_IDLE_DAYS` / `SESSION_MAX_DAYS` | `14` / `60` | Utloggning efter inaktivitet eller maxtid |
 | `PASSWORD_MIN_LENGTH` | `10` | Minsta lösenordslängd |
 | `BAMBU_SYNC_HOURS` | `6` | Hur ofta kopplade Bambu Lab-konton synkas (0 = bara manuellt) |
+| `BACKUP_TIME` | `03:30` | När den automatiska säkerhetskopian görs varje natt (tom = av). Sparas i `/data/backups`. |
+| `BACKUP_KEEP` | `7` | Hur många automatiska säkerhetskopior som sparas |
+| `NOTIFY_HOSTS` | `ntfy.sh` | ntfy-servrar som prisbevakningens aviseringar får skickas till (kommaseparerat, tomt = inga aviseringar). Lägg till din egen ntfy-server här. |
+| `NOTIFY_DEFAULT_HOST` | `ntfy.sh` | Server som används när användaren bara anger ett ämnesnamn |
+| `PUBLIC_URL` | – | Katalogens adress utifrån, t.ex. `https://filament.example.se`. Aviseringar länkar då till önskelistan. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | – | Skapar första administratören automatiskt i stället för installationskod |
 
 ## Kommandon i containern
@@ -176,11 +206,15 @@ All data finns i `/data`:
 
 | Sökväg | Innehåll |
 |---|---|
-| `katalog.db` | Användare, sessioner, markeringar, önskelistor, inköpslistor, delningslänkar (bara som hash), körhistorik och Bambu-inloggningar (filen är bara läsbar för containern) |
+| `katalog.db` | Användare, sessioner, markeringar, önskelistor, inköpslistor, köp- och utskriftshistorik, delningslänkar (bara som hash), körhistorik, Bambu- och Tibber-inloggningar (filen är bara läsbar för containern) |
+| `receipts/` | Kvitton per användare |
+| `backups/` | Automatiska säkerhetskopior |
 | `www/offers.json` | Senaste priserna |
 | `state/` | Kända produktlänkar och prishistorik (`price_history.json`, 90 dagar) |
 
-Enklast: **Administration → Säkerhetskopia → Ladda ner säkerhetskopia**. Du får en zip-fil med en konsekvent kopia av databasen (tas medan servern kör) och `state/` och `www/`. Filen innehåller lösenordshashar och Bambu-inloggningar, så förvara den säkert. Återställ genom att stoppa containern, packa upp filen i datamappen och starta igen.
+En säkerhetskopia görs automatiskt varje natt kl. 03.30 till `/data/backups` (de 7 senaste sparas, `BACKUP_TIME`/`BACKUP_KEEP`). Under **Administration → Säkerhetskopia** kan du säkerhetskopiera direkt, ladda ner en sparad kopia och återställa en kopia (nuvarande läge sparas först, alla loggas ut). Vill du återställa en nedladdad kopia lägger du filen i `/data/backups` först.
+
+Du kan också välja **Ladda ner säkerhetskopia**. Du får en zip-fil med en konsekvent kopia av databasen (tas medan servern kör) och `state/` och `www/`. Filen innehåller lösenordshashar och Bambu-inloggningar, så förvara den säkert. Återställ genom att stoppa containern, packa upp filen i datamappen och starta igen.
 
 Annars: kopiera mappen när containern är stoppad, eller använd `sqlite3 katalog.db ".backup kopia.db"`.
 

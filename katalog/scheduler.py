@@ -1,5 +1,6 @@
 """Schemalagd prisuppdatering (standard 01:00 Europe/Stockholm) och manuell start från admin."""
 import datetime
+import json
 import io
 import threading
 import time
@@ -77,9 +78,21 @@ def run_now(trigger_name):
     return status
 
 
+def _check_new_colors():
+    try:
+        from . import newcolors
+        fresh = newcolors.check()
+        if fresh:
+            print(f'[nyheter] {len(fresh)} nya färger: ' + ', '.join(newcolors._line(n) for n in fresh[:5]), flush=True)
+            newcolors.notify(fresh, lambda m: print(m, flush=True))
+    except Exception as ex:  # noqa: BLE001
+        print(f'[nyheter] fel: {ex!r}', flush=True)
+
+
 def _loop():
     global _last_bambu
     db.init()  # egen anslutning i tråden
+    _check_new_colors()   # första gången: spara det som redan finns; efter en ny image: nya katalogfärger
     if config.UPDATE_ON_START:
         trigger('start')
     nxt = next_run()
@@ -103,8 +116,13 @@ def _loop():
         if kind:
             try:
                 if run_now(kind) in ('ok', 'partial'):
-                    from . import cart
+                    from . import alerts, cart
                     cart.refresh_all()   # nya priser: räkna om inköpslistorna i bakgrunden
+                    offers, _ = cart.load_offers()
+                    catalog = json.loads(config.CATALOG_PATH.read_text(encoding='utf-8'))
+                    names = {d['type'] + '|' + (d['code'] or d['name']): d['name'] for d in catalog}
+                    alerts.notify_all(offers, names, lambda m: print(m, flush=True))
+                    _check_new_colors()
             except Exception as ex:  # noqa: BLE001
                 print(f'[priser] fel: {ex}', flush=True)
         # Bambu Lab-synk för kopplade konton.
@@ -113,8 +131,24 @@ def _loop():
             try:
                 from . import bambu
                 bambu.sync_all(lambda m: print('[bambu] ' + m, flush=True))
+                from . import spoolman
+                spoolman.sync(lambda m: print(m, flush=True))
             except Exception as ex:  # noqa: BLE001
                 print(f'[bambu] fel: {ex}', flush=True)
+        # Home Assistant: sensorer var 5:e minut (om det är inställt).
+        try:
+            from . import homeassistant
+            homeassistant.publish_all()
+        except Exception as ex:  # noqa: BLE001
+            print(f'[home assistant] fel: {ex!r}', flush=True)
+        # Nattens säkerhetskopia.
+        try:
+            from . import backup
+            last = backup.list_backups()
+            if backup.due(datetime.datetime.now(TZ), last[0]['name'] if last else None):
+                print(f'[backup] säkerhetskopia sparad: {backup.create(datetime.datetime.now(TZ))}', flush=True)
+        except Exception as ex:  # noqa: BLE001
+            print(f'[backup] fel: {ex!r}', flush=True)
         # Städa gamla sessioner en gång per varv.
         try:
             now = time.time()

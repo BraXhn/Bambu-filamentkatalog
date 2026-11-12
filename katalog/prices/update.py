@@ -25,6 +25,8 @@ HISTORY_DAYS = 90          # hur länge prishistoriken sparas (visas som diagram
 REGULAR_WINDOW = 30        # ordinarie pris = typiskt pris de senaste 30 dagarna
 MIN_HISTORY_DAYS = 7       # minst så många dagars historik innan rabatt räknas fram ur historiken
 MIN_DISCOUNT = 5           # procent; mindre prisskillnader räknas inte som erbjudande
+LOW_DAYS = 14              # minst så många dagars historik innan "lägsta på 90 dagar" visas
+USUALLY_LOWER = 0.92       # "brukar kosta mindre" när 30-dagarsmedianen är minst 8 % lägre än dagens pris
 
 
 def write_json_atomic(path, obj, gz=True):
@@ -95,6 +97,16 @@ def run_update(log=print, sources=None):
     unique = {(o['key'], o['url'], o['pack']): o for o in offers}
     offers = list(unique.values())
     deals = apply_history(offers, now)
+    try:   # dagligt lägsta pris per färg (1 kg, ny, fast pris) för säsongsmönster
+        from .. import db
+        best = {}
+        for o in offers:
+            if o.get('kind') == 'fixed' and o.get('weight') == 1000 and o.get('condition') in ('Ny', 'Oanvänt') and \
+                    isinstance(o.get('price'), (int, float)):
+                best[o['key']] = min(best.get(o['key'], 10 ** 9), o['price'])
+        db.save_daily_prices(now[:10], best)
+    except Exception as ex:  # noqa: BLE001
+        log(f'Dagliga priser kunde inte sparas: {ex}')
     log(f'Erbjudanden med rabatt mot ordinarie pris: {deals}')
     write_json_atomic(config.WWW_DIR / 'offers.json', {'checkedAt': now, 'offers': offers})
     config.STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -129,11 +141,18 @@ def apply_history(offers, now_iso, history_path=None):
     deals = 0
     for o in offers:
         o.pop('regular', None); o.pop('regularSource', None); o.pop('discount', None)
+        o.pop('low90', None); o.pop('usual', None)
         if o.get('kind') != 'fixed' or not isinstance(o.get('price'), (int, float)):
             continue
         h = history.setdefault(_offer_id(o), {})
         past = [v for d, v in h.items() if cutoff_window <= d < today and isinstance(v, (int, float))]
+        older = [v for d, v in h.items() if cutoff_keep <= d < today and isinstance(v, (int, float))]
         h[today] = o['price']
+        # Bästa tid att köpa: dagens pris jämfört med historiken för samma erbjudande.
+        if len(older) >= LOW_DAYS and o['price'] <= min(older):
+            o['low90'] = True
+        elif len(past) >= MIN_HISTORY_DAYS and statistics.median(past) <= o['price'] * USUALLY_LOWER:
+            o['usual'] = round(statistics.median(past))
         regular, source = None, None
         lp = o.get('listPrice')
         if isinstance(lp, (int, float)) and lp > o['price']:

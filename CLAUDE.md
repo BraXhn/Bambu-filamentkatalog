@@ -16,8 +16,8 @@ commit-meddelanden och svar till användaren är på svenska.
   och serveras `no-store`; versionerade filer är `immutable`. Ändrar du `dist/*.js` behövs inget mer.
 - `dist/` – katalogdata (`data.json`), webbapp (`index.html`, `app.js`, `prices-ui.js`) och seed `offers.json`.
 - `katalog/db.py` – SQLite (DELETE-journal, inte WAL: Unraids FUSE klarar inte WAL). Tabeller:
-  users, sessions (bara token-hash), owned, wish, cart, prefs (budget, low_grams), cart_shares (bara token-hash),
-  runs, settings, bambu_links, bambu_pending.
+  users, sessions (bara token-hash), owned, wish, alerts (målpris/rabatt per önskad färg), cart, purchases (+ receipt), prints,
+  prefs (budget, low_grams, notify, cost_*, tibber_token), cart_shares (bara token-hash), runs, settings, bambu_links, bambu_pending.
 - `katalog/security.py` – scrypt, rate limiters. `katalog/config.py` – alla miljövariabler med säkra standardvärden.
 - `katalog/bambu.py` – inofficiellt Bambu-moln-API (inloggning med e-postkod/TFA, filamentbibliotek), matchning
   mot katalogen. Testas mot `tests/fake_bambu.py` via `KATALOG_BAMBU_TEST_BASE`.
@@ -28,6 +28,29 @@ commit-meddelanden och svar till användaren är på svenska.
   `bulk`/`bulkGroup` (3DVerkstan). Rabatten ska alltid redovisas tydligt i inköpslistan.
   `plan()` har en tidsbudget; `cached_plan()` cachar per användare och räknar om stora listor i en bakgrundstråd
   (även efter varje prisuppdatering). `within_budget()` delar listan i "köp nu" och "kan vänta".
+- `katalog/alerts.py` – prisbevakning: samma "lägsta pris"-regel som katalogens JS (`best`), träffar och
+  ntfy-aviseringar efter varje prisuppdatering. Bara https till värdar i `config.NOTIFY_HOSTS`, inga omdirigeringar.
+- `apply_history()` sätter även `low90` (lägsta på 90 dagar) och `usual` (typiskt pris) per erbjudande.
+- `katalog/energy.py` – elpris: elprisetjustnu.se (spot per kvart, utan moms, 404 = ej publicerat) och Tibber GraphQL
+  (`total` = energi + skatt + moms, utan nätavgift). Cachas i minnet; testadresser (`KATALOG_ELPRIS_TEST_BASE`,
+  `KATALOG_TIBBER_TEST_URL`) godtas bara mot 127.0.0.1. `window_cost()`/`cheapest_start()` räknar över intervallen.
+- `katalog/costcalc.py` + `/kostnad` – kostnadsräknaren; `assets/cost.js` läser .gcode.3mf/.gcode i webbläsaren och
+  kopplar färger via `/api/match` (samma `bambu.SpoolMatcher` som Bambu-synken). Tibber-token i `prefs` (tibber_token).
+- `katalog/printlog.py` + `/utskrifter` – utskriftslogg (tabell prints), import från Bambu-molnet (`bambu.get_tasks`,
+  `/v1/user-service/my/tasks`, körs vid varje synk), summor och förbrukningsprognos (`forecast`, även i `/api/owned`).
+- `katalog/backup.py` – zip (db via backup-API, state/www/receipts), nattlig kopia i scheduler (`BACKUP_TIME`),
+  återställning via `db.restore_from` (bara till kända mappar). Kvitton: `PUT /api/receipt/<köp-id>` (rå kropp,
+  typ + magiska byte kontrolleras), `GET /kvitto/<id>` bara för ägaren.
+- PWA: `dist/manifest.webmanifest` och `dist/sw.js` (nätet först, cachar bara sida/skript/data.json/offers.json/assets).
+  Tibber Pulse: `energy.tibber_live` med minimal WebSocket-klient (`_WS`, bara `*.tibber.com`).
+- `katalog/mqtt.py` – minimal MQTT 3.1.1-klient. `katalog/printers.py` – en tråd per skrivare (LAN: port 8883, bblp + åtkomstkod,
+  självsignerat cert; moln: `u_<uid>` + Bambu-token mot `us.mqtt.bambulab.com`), slår ihop rapporter, status + AMS + elkostnad.
+  Tester mot `tests/fake_mqtt.py` (`KATALOG_MQTT_TEST_PLAIN=1`, `KATALOG_MQTT_TEST_PORT`). LAN-IP måste vara privat.
+- `katalog/homeassistant.py` (MQTT-upptäckt, inställt i settings `ha_*`), `katalog/spoolman.py` (bara privata adresser, inga omdirigeringar),
+  `katalog/newcolors.py` (Bambu Studios färgtabell, `state/new_colors.json`), `katalog/season.py` (tabell `price_daily`),
+  `katalog/groupbuy.py` (samköp, pref `samkop_ok`), `katalog/dataio.py` (export/import utan hemligheter), `katalog/colors.py` (ΔE).
+- Personliga API-nycklar (`api_tokens`, bara hash, prefix `kat_`) gäller bara `/api/v1/*` och `/api/printers` via `api_user()`.
+- Tabeller även: printers, projects, api_tokens, price_daily; prints har `reason` och `project_id`.
 - `katalog/history.py` – prishistorik per färg för diagrammet (`/api/history`), läser `state/price_history.json`.
 - `/delad/<token>` visar en inköpslista utan inloggning (skrivskyddad). Serverrenderade sidor får bara skript
   från `/assets/` (t.ex. `print.js`), aldrig inline.
