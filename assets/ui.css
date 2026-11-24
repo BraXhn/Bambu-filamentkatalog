@@ -82,3 +82,4 @@ td{border-color:var(--line)}
 .palette-strip{display:flex;height:42px;border-radius:12px;overflow:hidden;margin-bottom:14px;border:1px solid var(--line)}.swatch-tile.strip{flex:1;height:100%;border:0;border-radius:0}
 .similar{list-style:none;padding:0;margin:4px 0 0;font-size:12px}
 .checks{display:flex;flex-wrap:wrap;gap:8px 16px}.check{display:flex;gap:6px;align-items:center;font-size:14px}
+.material{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:14px}.material dt{color:var(--muted)}.material dd{margin:0}

@@ -78,7 +78,11 @@ class ApiRoutes:
                 for t in p['trays']:
                     if t['key']:
                         ams.setdefault(t['key'], []).append(f"{p['name']} · {t['slot']}")
-        self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': bs, 'spoolman': spool, 'ams': ams,
+        from .. import spools as spoolmod
+        own_spools = spoolmod.summary(u['id'])
+        for k, v in own_spools.items():
+            left[k] = (left.get(k) or 0) + v['grams']
+        self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': bs, 'spoolman': spool, 'ams': ams, 'spools': own_spools,
                         'forecast': printlog.forecast(u['id'], left)})
 
     def api_owned_put(self):
@@ -157,3 +161,20 @@ class ApiRoutes:
         from .. import season
         tips = [t for t in (season.advice(key), season.calendar_hint(datetime.date.today())) if t]
         self.json(200, {'key': key, 'series': history.series(key, offers), 'tips': tips})
+
+    def api_materials(self):
+        from .. import materials
+        u = self.user()
+        if not u or u['must_change_pw']:
+            return self.json(401, {'error': 'inte inloggad'})
+        typ = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get('type', [''])[0]
+        info = materials.for_type(typ)
+        if not info:
+            return self.json(404, {'error': 'okänd typ'})
+        self.json(200, dict(info, nozzle=list(info['nozzle']), bed=list(info['bed']), dry=list(info['dry'])))
+
+    def get_materials(self):
+        from .. import materials
+        u = self.user()
+        types = {k.split('|')[0] for k in _catalog_names()}
+        self.send(200, pages.materials_page(u, self.session()['csrf'], materials.all_types(types)))

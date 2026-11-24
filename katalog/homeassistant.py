@@ -26,6 +26,21 @@ def enabled():
     return bool(s['host'] and s['user_id'])
 
 
+def check_host(host, port):
+    """Brokern ska ligga i det egna nätet: sensorerna innehåller skrivarnamn och lager och skickas som retained."""
+    import ipaddress
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return f'Hittar inte {host}.'
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not (ip.is_private or ip.is_loopback) or ip.is_link_local:
+            return 'MQTT-brokern måste ligga i det lokala nätet (privat IP-adress).'
+    return None
+
+
 def _client(s):
     tls = s['port'] == 8883
     return mqtt.Client(s['host'], s['port'], s['user'] or None, s['password'] or None, tls=tls, verify=False, timeout=8).connect()
@@ -79,6 +94,11 @@ def publish_all(force=False):
         return None
     _last['ts'] = time.time()
     s = settings()
+    if check_host(s['host'], s['port']):
+        return None
+    owner = db.get_user(int(s['user_id']))
+    if not owner or (not owner['is_admin'] and db.get_pref(owner['id'], 'integrations_ok') != '1'):
+        return None   # användaren har dragit tillbaka sitt samtycke
     uid = int(s['user_id'])
     sensors = collect(uid)
     c = _client(s)

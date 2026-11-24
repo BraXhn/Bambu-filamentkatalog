@@ -41,7 +41,12 @@ class AdminRoutes:
         except ValueError:
             st = None
         return {'ha': {**ha, 'password': bool(ha['password'])}, 'spoolman': {**sm, 'status': st},
-                'users': [(u['id'], u['username']) for u in db.list_users()]}
+                'users': [(u['id'], u['username']) for u in self._integration_users()]}
+
+    def _integration_users(self):
+        """Vems data som får skickas till Home Assistant/Spoolman: administratören själv och användare som samtyckt."""
+        me = self.user()['id']
+        return [u for u in db.list_users() if u['id'] == me or db.get_pref(u['id'], 'integrations_ok') == '1']
 
     def get_admin(self):
         if not self.user()['is_admin']:
@@ -101,8 +106,13 @@ class AdminRoutes:
                 return self._admin_page('err', 'Ogiltig adress till MQTT-brokern.', code=400)
             port = f.get('port', '').strip() or '1883'
             uid_ = f.get('user_id', '').strip()
-            if not port.isdigit() or not 1 <= int(port) <= 65535 or (uid_ and not db.get_user(int(uid_) if uid_.isdigit() else 0)):
-                return self._admin_page('err', 'Kontrollera port och användare.', code=400)
+            allowed_ids = {str(u['id']) for u in self._integration_users()}
+            if not port.isdigit() or not 1 <= int(port) <= 65535 or (uid_ and uid_ not in allowed_ids):
+                return self._admin_page('err', 'Kontrollera port och användare (andras data kräver att de samtyckt under Mitt konto).', code=400)
+            if host:
+                err = homeassistant.check_host(host, int(port))
+                if err:
+                    return self._admin_page('err', err, code=400)
             for k, v in (('host', host), ('port', port), ('user', f.get('user', '').strip()[:100]), ('user_id', uid_),
                          ('prefix', (f.get('prefix', '').strip() or 'homeassistant')[:60])):
                 if v:
@@ -127,8 +137,8 @@ class AdminRoutes:
                 err = spoolman.check_url(url)
                 if err:
                     return self._admin_page('err', err, code=400)
-                if not uid_.isdigit() or not db.get_user(int(uid_)):
-                    return self._admin_page('err', 'Välj vems katalog Spoolman ska synkas med.', code=400)
+                if uid_ not in {str(u['id']) for u in self._integration_users()}:
+                    return self._admin_page('err', 'Välj vems katalog Spoolman ska synkas med (andras data kräver att de samtyckt under Mitt konto).', code=400)
                 db.set_setting('spoolman_url', url)
                 db.set_setting('spoolman_user_id', uid_)
                 db.set_setting('spoolman_push', '1' if f.get('push') == '1' else '0')

@@ -52,7 +52,8 @@ class PrintersRoutes:
         u = self.api_user()
         if not u:
             return self.json(401, {'error': 'inte inloggad'})
-        self.json(200, {'printers': self._printer_status(u['id'])})
+        # Ingen IP-adress eller felsträng ut via API:t (kan nås med API-nyckel).
+        self.json(200, {'printers': [{k: v for k, v in p.items() if k not in ('host', 'error')} for p in self._printer_status(u['id'])]})
 
     def printers_post(self, path):
         f = self.form()

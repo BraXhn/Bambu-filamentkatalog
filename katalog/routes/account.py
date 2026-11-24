@@ -86,7 +86,9 @@ class AccountRoutes:
             return self.redirect('/')  # utloggning från annan sajt ignoreras
         if s:
             db.delete_session(s['id'])
-        self.redirect('/login?ut=1', headers=[('Set-Cookie', self.cookie_header(COOKIE, '', 0))])
+        # Töm webbläsarens lagring och offline-cache (markeringar, katalogdata) oavsett var man loggar ut.
+        self.redirect('/login?ut=1', headers=[('Set-Cookie', self.cookie_header(COOKIE, '', 0)),
+                                              ('Clear-Site-Data', '"cache", "storage"')])
 
     # ---------- första start ----------
     def get_setup(self):
@@ -141,7 +143,7 @@ class AccountRoutes:
             section = pages.bambu_section(csrf, db.get_bambu(u['id']), db.get_bambu_pending(u['id']),
                                           _catalog_names(), bkind, bmsg)
             section += pages.api_tokens_section(csrf, db.list_api_tokens(u['id']), new_token, self._base_url(), tkind, tmsg)
-            section += pages.data_section(csrf)
+            section += pages.data_section(csrf, db.get_pref(u['id'], 'integrations_ok') == '1')
         self.send(code, pages.account(u, csrf, self._sessions_count(u['id']), kind, msg,
                                       must_change=u['must_change_pw'], bambu=section))
 
@@ -166,6 +168,15 @@ class AccountRoutes:
         except ValueError as ex:
             return self.json(400, {'error': str(ex)})
         self.json(200, {'imported': n})
+
+    def integrations_consent(self):
+        f = self.form()
+        if not self.check_csrf(f):
+            return self.forbidden()
+        on = f.get('on') == '1'
+        db.set_pref(self.user()['id'], 'integrations_ok', '1' if on else None)
+        return self.get_account(tkind='ok', tmsg='Administratören får nu välja din data för Home Assistant och Spoolman.' if on
+                                else 'Din data skickas inte längre till Home Assistant eller Spoolman (om administratören valt den, stängs det av).')
 
     def _base_url(self):
         return config.PUBLIC_URL or f"{'https' if self.browser_https else 'http'}://{self.headers.get('Host') or 'localhost'}"
@@ -245,7 +256,7 @@ class AccountRoutes:
                                  + (f", {int(p['left'] or 0)} minuter kvar" if p['left'] is not None else ''))
                 else:
                     parts.append(f"{p['name']}: {p['stateText'].lower()}")
-            return {'skrivare': st}, '. '.join(parts) + '.'
+            return {'skrivare': [{k: v for k, v in p.items() if k not in ('host', 'error')} for p in st]}, '. '.join(parts) + '.'
         if path == '/api/v1/sammanfattning':
             offers, _ = cart.load_offers()
             hits = alerts.hits(uid, offers)

@@ -139,10 +139,14 @@ class ShopRoutes:
             db.set_pref(uid, 'notify_new', '1' if on else None)
             return self.get_wish('ok', 'Du aviseras när Bambu Lab får nya färger.' if on else 'Aviseringar om nya färger är avstängda.')
         if path == '/onskelista/avisering':
-            if f.get('do') == 'ta-bort' or not f.get('target', '').strip():
+            if f.get('do') == 'ta-bort' or (not f.get('target', '').strip() and f.get('do') != 'generera'):
                 db.set_pref(uid, 'notify', None)
                 return self.get_wish('ok', 'Aviseringar är avstängda. Träffar visas fortfarande här och i katalogen.')
-            target = alerts.parse_target(f.get('target', ''))
+            raw = alerts.random_topic() if f.get('do') == 'generera' else f.get('target', '')
+            target = alerts.parse_target(raw)
+            if target and alerts.topic_too_short(target):
+                return self.get_wish('err', f'Välj ett längre, svårgissat ämne (minst {alerts.MIN_PUBLIC_TOPIC} tecken) – ntfy.sh är öppet, '
+                                            'så den som gissar ämnet kan läsa aviseringarna. Eller tryck Generera ämne.', 400)
             if not target:
                 return self.get_wish('err', 'Ange ett ntfy-ämne (bokstäver, siffror, - och _) eller en adress hos en tillåten '
                                             f'ntfy-server ({", ".join(sorted(config.NOTIFY_HOSTS)) or "ingen"}).', 400)
@@ -161,7 +165,7 @@ class ShopRoutes:
         items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(uid)]
         offers, checked = cart.load_offers()
         plan = cart.cached_plan(uid, items, offers, _catalog(), checked) if items else None
-        self.send(200, pages.shared_list(owner['username'], plan, checked))
+        self.send(200, pages.shared_list(plan, checked))
 
     def _share_url(self, token):
         host = self.headers.get('Host') or 'localhost'
