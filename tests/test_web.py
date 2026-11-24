@@ -109,7 +109,7 @@ class WebFlow(unittest.TestCase):
         # prisbevakning på önskelistan
         s,h,b=req(a,'/onskelista'); t8=csrf(b); ok(s==200 and 'Bevakning' in b and 'ntfy' in b,'önskelistesidan visas')
         s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'100000','discount':''}); ok(s==303,'spara målpris')
-        s,h,b=req(a,'/onskelista'); ok('Ditt pris är nått' in b,'träff visas när målpriset nås')
+        s,h,b=req(a,'/onskelista'); ok('Målpriset är nått' in b,'träff visas när målpriset nås')
         s,h,b=req(a,'/api/wish'); ok(json.loads(b)['hits']==['PLA Basic|10101'],'träffen finns i api/wish')
         s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'abc'}); ok(s==400,'ogiltigt målpris nekas')
         s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10100','target':'200'}); ok(s==400,'bevakning kräver att färgen är på önskelistan')
@@ -192,7 +192,7 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/api/import',json.dumps(exp).encode(),'PUT',J); ok(s==200 and 'imported' in json.loads(b),'importera JSON: %s'%b[:200])
         s,h,b=req(a,'/api/import',b'{"format":"x"}','PUT',J); ok(s==400,'fel format nekas')
         # samköp och integrationer
-        s,h,b=req(a,'/samkop'); t16=csrf(b); ok(s==200 and 'Vilka är med' in b,'samköpssidan visas')
+        s,h,b=req(a,'/samkop'); t16=csrf(b); ok(s==200 and 'Deltagare' in b,'samköpssidan visas')
         s,h,b=req(a,'/samkop/rakna',{'csrf':t16}); ok(s==200 and 'Fördelning' in b,'räkna ut samköp')
         s,h,b=req(a,'/admin'); t17=csrf(b); ok('Home Assistant' in b and 'Spoolman' in b,'integrationer på adminsidan')
         s,h,b=req(a,'/admin/spoolman',{'csrf':t17,'url':'http://8.8.8.8:7912','user_id':'1'}); ok(s==400,'Spoolman utanför lokala nätet nekas')

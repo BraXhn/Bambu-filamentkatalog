@@ -160,7 +160,7 @@ class ShopRoutes:
             raw = alerts.random_topic() if f.get('do') == 'generera' else f.get('target', '')
             target = alerts.parse_target(raw)
             if target and alerts.topic_too_short(target):
-                return self.get_wish('err', f'Välj ett längre, svårgissat ämne (minst {alerts.MIN_PUBLIC_TOPIC} tecken) – ntfy.sh är öppet, '
+                return self.get_wish('err', f'Välj ett längre, svårgissat ämne (minst {alerts.MIN_PUBLIC_TOPIC} tecken). ntfy.sh är öppet, '
                                             'så den som gissar ämnet kan läsa aviseringarna. Eller tryck Generera ämne.', 400)
             if not target:
                 return self.get_wish('err', 'Ange ett ntfy-ämne (bokstäver, siffror, - och _) eller en adress hos en tillåten '
@@ -206,7 +206,7 @@ class ShopRoutes:
         if path == '/inkopslista/dela':
             token = security.new_token()
             db.set_share(uid, security.token_hash(token))
-            return self.get_cart('ok', 'Delningslänken är skapad. Kopiera den nu – den visas bara en gång. '
+            return self.get_cart('ok', 'Delningslänken är skapad. Kopiera den nu. Den visas bara en gång. '
                                        'En tidigare länk slutar gälla.', share_url=self._share_url(token))
         if path == '/inkopslista/kopt':
             return self._mark_bought(uid, f.get('shop', ''))
