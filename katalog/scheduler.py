@@ -115,7 +115,13 @@ def _loop():
             nxt = None
         if kind:
             try:
-                if run_now(kind) in ('ok', 'partial'):
+                status = run_now(kind)
+                try:
+                    from . import sourcewatch
+                    sourcewatch.check(lambda m: print(m, flush=True))
+                except Exception as ex:  # noqa: BLE001
+                    print(f'[priser] bevakning av källor: {ex!r}', flush=True)
+                if status in ('ok', 'partial'):
                     from . import alerts, cart
                     cart.refresh_all()   # nya priser: räkna om inköpslistorna i bakgrunden
                     offers, _ = cart.load_offers()
