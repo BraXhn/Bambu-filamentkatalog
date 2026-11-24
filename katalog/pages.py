@@ -437,7 +437,8 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
         for l in sh['lines']:
             o, d = l['offer'], l['item'] or {}
             name = f"{d.get('type', l['key'].split('|')[0])} · {d.get('name', l['key'].split('|')[-1])}"
-            disc = (f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else '') + timing_badge(o)
+            disc = (f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else '') + timing_badge(o) + \
+                (f' <span class="badge ok">din rabatt −{_num(o["codeDiscount"], 0)} %</span>' if o.get('codeDiscount') else '')
             rows += (f'<tr><td><b>{e(name)}</b>{disc}<br><span class="muted" style="font-size:12px">{e(o.get("title", ""))}</span></td>'
                      f'<td class="hide-sm">{e(o.get("pack", ""))} {o.get("weight") or "?"} g</td>'
                      + (f'<td class="right"><span style="white-space:nowrap">{l["qty"]} × <s class="muted">{_kr(o["price"])}</s></span> '
@@ -467,7 +468,7 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
             d = m['item'] or {}
             q = urllib.parse.quote(f"Bambu Lab {d.get('type', '')} {d.get('name', '')}".strip())
             mrows += (f'<li><b>{e(d.get("type", m["key"]))} · {e(d.get("name", ""))}</b> ({m["qty"]} st'
-                      f'{", " + e(m["pack"]) if m["pack"] != "any" else ""}) – '
+                      f'{", " + e(m["pack"]) if m["pack"] != "any" else ""}{", bara " + e(m["shop"]) if m.get("shop") else ""}) – '
                       f'<a href="https://www.prisjakt.nu/search?search={q}" target="_blank" rel="noopener">sök på Prisjakt ↗</a> · '
                       f'<a href="https://www.tradera.com/search?q={q}" target="_blank" rel="noopener">Tradera ↗</a></li>')
         missing = (f'<section class="card"><h2>Inget köpbart erbjudande just nu</h2><p class="sub">Ingår inte i totalen.</p>'
@@ -480,7 +481,7 @@ def _print_button():
 
 
 def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg='', budget=None, waiting=(),
-                  full=None, shared=False, share_url=None, purchases=()):
+                  full=None, shared=False, share_url=None, purchases=(), shops_for=None, discounts=None, all_shops=()):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     history_html = _purchases_html(purchases, names, csrf)
     if not items:
@@ -523,7 +524,12 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
 {_print_button()}<a class="btn ghost small" href="/samkop">Samköp med andra</a></div></section>"""
 
     edit_rows = ''
-    for key, qty, pack in items:
+    shops_for = shops_for or {}
+    for key, qty, pack, *rest in items:
+        locked = rest[0] if rest else None
+        shop_opts = '<option value="">Valfri butik</option>' + ''.join(
+            f'<option value="{e(sname)}"{" selected" if sname == locked else ""}>Bara {e(sname)}</option>'
+            for sname in sorted(set(shops_for.get(key, [])) | ({locked} if locked else set())))
         label = names.get(key, key.split('|')[-1])
         typ = key.split('|')[0]
         opts = ''.join(f'<option value="{v}"{" selected" if v == pack else ""}>{t}</option>'
@@ -532,8 +538,18 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
 <form method="post" action="/inkopslista/rad" class="row cart-edit">{h}<input type="hidden" name="key" value="{e(key)}">
 <input type="number" name="qty" value="{qty}" min="0" max="50" aria-label="Antal" style="width:74px;padding:8px">
 <select name="pack" aria-label="Förpackning" style="width:auto;padding:8px">{opts}</select>
+<select name="shop" aria-label="Butik" style="width:auto;padding:8px">{shop_opts}</select>
 <button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
 <button class="btn danger small" type="submit" name="do" value="ta-bort">Ta bort</button></form></td></tr>"""
+    discounts = discounts or {}
+    drows = ''.join(f'<div class="field" style="max-width:190px"><label for="d{i}">{e(sname)}</label>'
+                    f'<input id="d{i}" name="d_{re.sub(r"[^A-Za-z0-9]", "_", sname)}" type="text" inputmode="decimal" maxlength="5" '
+                    f'value="{e(_num(discounts[sname], 0) if sname in discounts else "")}" placeholder="% rabatt"></div>' for i, sname in enumerate(all_shops))
+    disc_html = (f'<section class="card no-print" id="rabatter"><h2>Rabattkoder och medlemspriser</h2>'
+                 f'<p class="sub">Har du en rabattkod eller ett medlemspris hos en butik? Ange rabatten i procent, så räknas den in i inköpslistan, '
+                 f'prisbevakningen och kostnadsräknaren. Kom ihåg att ange koden i butikens kassa.</p>'
+                 f'<form method="post" action="/inkopslista/rabatter">{h}<div class="row">{drows}</div>'
+                 f'<button class="btn ghost small mt" type="submit">Spara rabatter</button></form></section>') if all_shops else ''
     edit = f"""<section class="card no-print"><h2>Ändra listan</h2><p class="sub">Antal 0 tar bort raden. Välj förpackning om du bara vill ha spole eller refill.
 Med en budget visas vad du kan köpa nu och vad som kan vänta.</p>
 <div class="tablewrap"><table><tbody>{edit_rows}</tbody></table></div>{budget_form}
@@ -541,7 +557,7 @@ Med en budget visas vad du kan köpa nu och vad som kan vänta.</p>
     plan_html = _plan_html(plan, checked_at, 'Köp nu' if budget and waiting else 'Uppskattat totalt', csrf) \
         if plan['totals']['units'] or plan['missing'] else ''
     body = (f'<h1>Inköpslista</h1><p class="lead">Var du bör köpa varje filament och vad det kostar totalt.</p>'
-            f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{share_html}{history_html}')
+            f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{disc_html}{share_html}{history_html}')
     return layout('Inköpslista', body, user, csrf, 'inkop', refresh=8 if pending else None, scripts=('/assets/print.js', '/assets/receipt.js'))
 
 
@@ -586,7 +602,7 @@ def _purchases_html(purchases, names, csrf=''):
             f'<tbody>{rows}</tbody></table></div></details></section>')
 
 
-def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_kind='', msg='', notify_new=False, calendar=None):
+def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_kind='', msg='', notify_new=False, calendar=None, weekly=False):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     lead = ('<p class="lead">Färger du vill köpa senare. Sätt ett målpris (inklusive frakt) eller en minsta rabatt, '
             'så bevakas priset vid varje prisuppdatering.</p>')
@@ -605,7 +621,10 @@ ntfy.sh är öppet: den som gissar ämnet kan läsa aviseringarna, så välj ett
 <form method="post" action="/onskelista/nyheter" class="mt">{h}<input type="hidden" name="on" value="{'0' if notify_new else '1'}">
 <p class="sub" style="margin-bottom:8px">{'Du aviseras när Bambu Lab får nya färger eller filamenttyper.' if notify_new else 'Vill du också få en avisering när Bambu Lab får nya färger eller filamenttyper?'}
 {'' if notify else ' Ange ett ntfy-ämne ovan först.'}</p>
-<button class="btn ghost small" type="submit"{'' if notify or notify_new else ' disabled'}>{'Sluta avisera om nya färger' if notify_new else 'Avisera om nya färger'}</button></form></section>"""
+<button class="btn ghost small" type="submit"{'' if notify or notify_new else ' disabled'}>{'Sluta avisera om nya färger' if notify_new else 'Avisera om nya färger'}</button></form>
+<form method="post" action="/onskelista/vecka" class="mt">{h}<input type="hidden" name="on" value="{'0' if weekly else '1'}">
+<p class="sub" style="margin-bottom:8px">{'Du får en veckosammanfattning varje söndag kväll.' if weekly else 'Veckosammanfattning varje söndag kväll: målpriser, snart slut, torkning, underhåll, veckans utskrifter och nya färger.'}</p>
+<button class="btn ghost small" type="submit"{'' if notify or weekly else ' disabled'}>{'Stäng av veckosammanfattningen' if weekly else 'Slå på veckosammanfattning'}</button></form></section>"""
     else:
         notify_html = ''
     if not rows:

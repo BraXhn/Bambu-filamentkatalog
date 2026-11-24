@@ -159,7 +159,7 @@ class PrintsRoutes:
         owned |= set(have)
         colors_ = json.loads(p['colors'] or '[]')
         by_key = {d['type'] + '|' + (d['code'] or d['name']): d for d in catalog}
-        offers, _ = cart.load_offers()
+        offers, _ = cart.user_offers(u['id'])
         palette = []
         from .. import colors as colormath
         for k in colors_:

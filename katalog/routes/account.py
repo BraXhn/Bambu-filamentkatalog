@@ -258,7 +258,7 @@ class AccountRoutes:
                     parts.append(f"{p['name']}: {p['stateText'].lower()}")
             return {'skrivare': [{k: v for k, v in p.items() if k not in ('host', 'error')} for p in st]}, '. '.join(parts) + '.'
         if path == '/api/v1/sammanfattning':
-            offers, _ = cart.load_offers()
+            offers, _ = cart.user_offers(uid)
             hits = alerts.hits(uid, offers)
             low = [k for k, g in self._available(uid)[0].items() if g < int(db.get_pref(uid, 'low_grams') or 200)]
             n_cart = sum(r['qty'] for r in db.get_cart(uid))

@@ -9,8 +9,11 @@ commit-meddelanden och svar till användaren är på svenska.
 
 - **Bara Python-stdlib** (inga pip-beroenden i runtime). En process: `ThreadingHTTPServer` med
   HTTP/1.1 keep-alive i `katalog/web.py`. Lägg inte till ramverk eller extra processer (nginx togs bort med flit).
-- `katalog/web.py` – routing, förfrågningsvalidering (strikt Content-Length, inga Transfer-Encoding,
+- `katalog/web.py` – kärnan: routing (do_GET/do_POST/do_PUT), förfrågningsvalidering (strikt Content-Length, inga Transfer-Encoding,
   16 KB rubriker, 10 s deadline per förfrågan via `_ConnReader`), anslutningsgränser per IP, CSRF, sessioner.
+- `katalog/routes/*.py` – sidornas och API:ernas metoder som mixin-klasser per område (account, admin, api, cost, printers,
+  prints, shop, spools) som `web.Handler` ärver från. Delade konstanter, gränser och hjälpfunktioner i `katalog/webcommon.py`
+  (`from ..webcommon import *`). Nya routes: lägg metoden i rätt modul och kopplingen i `web.py`.
 - `katalog/pages.py` – serverrenderade sidor (inloggning, konto, admin, inköpslista). Escapea allt med `e()`.
 - `katalog/static.py` – webbappen i minnet (gzip, ETag). `index.html` skrivs om till `app.js?v=<hash>`
   och serveras `no-store`; versionerade filer är `immutable`. Ändrar du `dist/*.js` behövs inget mer.
@@ -49,6 +52,12 @@ commit-meddelanden och svar till användaren är på svenska.
 - `katalog/homeassistant.py` (MQTT-upptäckt, inställt i settings `ha_*`), `katalog/spoolman.py` (bara privata adresser, inga omdirigeringar),
   `katalog/newcolors.py` (Bambu Studios färgtabell, `state/new_colors.json`), `katalog/season.py` (tabell `price_daily`),
   `katalog/groupbuy.py` (samköp, pref `samkop_ok`), `katalog/dataio.py` (export/import utan hemligheter), `katalog/colors.py` (ΔE).
+- `katalog/spools.py` (egna spolar, vägning, avdrag från utskrifter, torkstatus), `katalog/materials.py` (riktvärden per typ),
+  `katalog/weekly.py` (söndagssammanfattning), underhåll/kamera/utskriftsavisering i `printers.py` (kamera: TLS port 6000, JPEG,
+  bara LAN A1/P1). Rabatter per butik: pref `discounts`, `cart.user_offers()`; låst butik per rad: `cart.shop`.
+- Integritet: delningssidan visar inget namn, `/logout` skickar `Clear-Site-Data`, API:er utelämnar skrivar-IP, publika
+  ntfy-ämnen kräver ≥12 tecken och får ingen `click`-länk, HA/Spoolman kräver privat adress och samtycke (pref `integrations_ok`),
+  `/delad/<token>` maskeras i loggen, neutrala felsidor (`error_message_format`).
 - Personliga API-nycklar (`api_tokens`, bara hash, prefix `kat_`) gäller bara `/api/v1/*` och `/api/printers` via `api_user()`.
 - Tabeller även: printers, projects, api_tokens, price_daily; prints har `reason` och `project_id`.
 - `katalog/history.py` – prishistorik per färg för diagrammet (`/api/history`), läser `state/price_history.json`.

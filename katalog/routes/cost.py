@@ -111,7 +111,7 @@ class CostRoutes:
                     src_note = f'Fast pris {fixed + extra:.2f} kr/kWh'.replace('.', ',')
             except energy.EnergyError as ex:
                 errors.append(f'Elpriset kunde inte hämtas: {ex}. Välj en annan källa eller fast pris.')
-            offers, _ = cart.load_offers()
+            offers, _ = cart.user_offers(u['id'])
             result = costcalc.calculate(rows, st['mode'], per_kg, hours, watts, intervals, start, wear, offers,
                                         db.last_paid(u['id']), now)
             result.update(start=start, hours=hours, watts=watts, source=src_note, now=now)

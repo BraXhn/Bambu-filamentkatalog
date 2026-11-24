@@ -51,9 +51,15 @@ class ShopRoutes:
         return self.not_found()
 
     # ---------- inköpslista ----------
+    def _discounts(self, uid):
+        return cart.user_discounts(uid)
+
     def _cart_plans(self, uid):
-        items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(uid)]
+        items = [(r['key'], r['qty'], r['pack'], r['shop']) for r in db.get_cart(uid)]
         offers, checked = cart.load_offers()
+        disc = self._discounts(uid)
+        offers = cart.apply_discounts(offers, disc)
+        checked = f"{checked}|{json.dumps(disc, sort_keys=True)}" if disc else checked   # ny rabatt = ny plan
         catalog = _catalog()
         plan = cart.cached_plan(uid, items, offers, catalog, checked) if items else cart.plan([], offers, catalog)
         budget = _int(db.get_pref(uid, 'budget'), None)
@@ -63,9 +69,16 @@ class ShopRoutes:
     def get_cart(self, kind='', msg='', code=200, share_url=None):
         u = self.user()
         items, plan, buy, wait, budget, checked = self._cart_plans(u['id'])
-        self.send(code, pages.shopping_list(u, self.session()['csrf'], buy, items, _catalog_names(), checked, kind, msg,
+        offers, _ = cart.load_offers()
+        shops_for = {}
+        for o in offers:
+            if o.get('kind') == 'fixed':
+                shops_for.setdefault(o['key'], set()).add(cart.shop_name(o))
+        self.send(code, pages.shopping_list(u, self.session()['csrf'], buy, items, _catalog_names(), checked.split('|')[0], kind, msg,
                                             budget=budget, waiting=wait, full=plan, shared=bool(db.get_share(u['id'])),
-                                            share_url=share_url, purchases=db.get_purchases(u['id'], 60)))
+                                            share_url=share_url, purchases=db.get_purchases(u['id'], 60),
+                                            shops_for={k: sorted(v) for k, v in shops_for.items()},
+                                            discounts=self._discounts(u['id']), all_shops=sorted(set(cart.SHOPS) | {'Tradera'})))
 
     def _mark_bought(self, uid, shop):
         """Butikens rader i den visade planen: räkna av från listan, lägg till under Jag har och spara i köphistoriken."""
@@ -79,7 +92,7 @@ class ShopRoutes:
             rows.append((shop, l['key'], l['qty'], round(l.get('bulkPrice') or o['price']), o.get('pack'), o.get('url'),
                          o.get('weight') or 1000))
             bought[l['key']] = bought.get(l['key'], 0) + l['qty']
-        for key, qty, pack in items:
+        for key, qty, pack, *_ in items:
             if key in bought:
                 db.set_cart_item(uid, key, max(0, qty - bought[key]), pack)
         owned = set(db.get_owned(uid) or [])
@@ -92,7 +105,7 @@ class ShopRoutes:
     def get_wish(self, kind='', msg='', code=200):
         from .. import season
         u = self.user()
-        offers, checked = cart.load_offers()
+        offers, checked = cart.user_offers(u['id'])
         keys = db.get_wish(u['id'])
         al = db.get_alerts(u['id'])
         rows = []
@@ -103,7 +116,7 @@ class ShopRoutes:
                          'low90': min(low) if low else None, 'tip': season.advice(k)})
         self.send(code, pages.wish_page(u, self.session()['csrf'], rows, _catalog_names(), db.get_pref(u['id'], 'notify'),
                                         bool(config.NOTIFY_HOSTS), checked, kind, msg,
-                                        notify_new=db.get_pref(u['id'], 'notify_new') == '1',
+                                        notify_new=db.get_pref(u['id'], 'notify_new') == '1', weekly=db.get_pref(u['id'], 'weekly') == '1',
                                         calendar=season.calendar_hint(datetime.date.today())))
 
     def wish_post(self, path):
@@ -134,6 +147,10 @@ class ShopRoutes:
             db.set_wish(uid, [k for k in db.get_wish(uid) if k != key])
             db.set_alert(uid, key, None, None)
             return self.redirect('/onskelista')
+        if path == '/onskelista/vecka':
+            on = f.get('on') == '1'
+            db.set_pref(uid, 'weekly', '1' if on else None)
+            return self.get_wish('ok', 'Du får en sammanfattning varje söndag kväll.' if on else 'Veckosammanfattningen är avstängd.')
         if path == '/onskelista/nyheter':
             on = f.get('on') == '1'
             db.set_pref(uid, 'notify_new', '1' if on else None)
@@ -162,9 +179,9 @@ class ShopRoutes:
         owner = db.get_user(uid) if uid else None
         if not owner:
             return self.send(404, pages.error_page(404, 'Länken gäller inte längre', 'Be om en ny länk till inköpslistan.'))
-        items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(uid)]
-        offers, checked = cart.load_offers()
-        plan = cart.cached_plan(uid, items, offers, _catalog(), checked) if items else None
+        items, plan, *_rest = self._cart_plans(uid)
+        checked = _rest[-1].split('|')[0]
+        plan = plan if items else None
         self.send(200, pages.shared_list(plan, checked))
 
     def _share_url(self, token):
@@ -198,6 +215,20 @@ class ShopRoutes:
         if path == '/inkopslista/sluta-dela':
             db.delete_share(uid)
             return self.get_cart('ok', 'Inköpslistan delas inte längre. Den gamla länken fungerar inte.')
+        if path == '/inkopslista/rabatter':
+            disc = {}
+            for shop in sorted(set(cart.SHOPS) | {'Tradera'}):
+                raw = f.get('d_' + re.sub(r'[^A-Za-z0-9]', '_', shop), '').replace(',', '.').replace('%', '').strip()
+                if raw:
+                    try:
+                        v = float(raw)
+                    except ValueError:
+                        return self.get_cart('err', f'Rabatten för {shop} anges i procent, t.ex. 10.', 400)
+                    if not 0 < v < 100:
+                        return self.get_cart('err', f'Rabatten för {shop} ska vara mellan 0 och 100 %.', 400)
+                    disc[shop] = v
+            db.set_pref(uid, 'discounts', json.dumps(disc) if disc else None)
+            return self.get_cart('ok', 'Rabatterna är sparade och räknas in i inköpslistan, bevakningen och kostnadsräknaren.')
         if path != '/inkopslista/rad':
             return self.not_found()
         key = f.get('key', '')
@@ -211,6 +242,9 @@ class ShopRoutes:
         if f.get('do') == 'ta-bort':
             qty = 0
         db.set_cart_item(uid, key, qty, pack)
+        if 'shop' in f and qty:
+            shop = f.get('shop', '').strip()[:60] or None
+            db.set_cart_shop(uid, key, shop)
         return self.redirect('/inkopslista')
 
     def api_cart_get(self):
@@ -246,7 +280,7 @@ class ShopRoutes:
         u = self.user()
         if not u or u['must_change_pw']:
             return self.json(401, {'error': 'inte inloggad'})
-        offers, _ = cart.load_offers()
+        offers, _ = cart.user_offers(u['id'])
         self.json(200, {'items': db.get_wish(u['id']), 'hits': sorted(alerts.hits(u['id'], offers))})
 
     def api_wish_put(self):
