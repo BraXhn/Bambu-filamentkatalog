@@ -1,0 +1,6 @@
+wh-bambu.json 200 1169 application/json https://www.webhallen.com/api/productdiscovery/search/bambu?page=1&touchpoint=DESKTOP&totalProductCountSet=false
+wh-bambulab.json 200 167 application/json https://www.webhallen.com/api/productdiscovery/search/bambu%20lab?page=1&touchpoint=DESKTOP&totalProductCountSet=false
+wh-pla-basic.json 200 169 application/json https://www.webhallen.com/api/productdiscovery/search/pla%20basic?page=1&touchpoint=DESKTOP&totalProductCountSet=false
+komplett.html 000 0  https://www.komplett.se/search?q=bambu%20lab%20filament
+komplett.html FAIL
+kjell-search2.html 200 48593 text/html; charset=utf-8 https://www.kjell.com/se/sok?query=bambu%20pla

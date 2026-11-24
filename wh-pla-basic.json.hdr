@@ -1,0 +1,27 @@
+HTTP/2 200 
+date: Tue, 24 Nov 2026 10:49:07 GMT
+content-type: application/json
+cf-ray: a5f7d85eae6f15b8-SJC
+cf-cache-status: BYPASS
+x-frame-options: deny
+access-control-allow-origin: https://www.webhallen.com
+cache-control: max-age=0, must-revalidate, private
+etag: W/"12380501d8420db5e32865a680ec5021"
+expires: Mon, 24 Nov 2025 10:49:07 GMT
+server: cloudflare
+set-cookie: webhallen=I8zLk1JxcsILsYVtwmMzhAPbqP2wnugBlXTXLxzb; expires=Tue, 24-Nov-2026 12:49:07 GMT; Max-Age=7200; path=/; httponly; samesite=lax
+set-cookie: last_visit=1795517347; expires=Wed, 25-Nov-2026 10:49:07 GMT; Max-Age=86400; path=/; httponly; samesite=lax
+set-cookie: voyado_customerKey=MTkxNjAzNjAyMA%3D; expires=Wed, 24-Nov-2027 10:49:07 GMT; Max-Age=31536000; path=/; httponly; samesite=lax
+set-cookie: voyado_sessionKey=MTcyOTUwNTkzNQ%3D; path=/; httponly; samesite=lax
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+vary: X-Locale, accept-encoding
+access-control-allow-headers: DNT, Region, Keep-Alive, User-Agent, X-Requested-With, If-Modified-Since, Cache-Control, Content-Type, Content-Range, Range, X-Locale
+access-control-allow-methods: POST, GET, OPTIONS
+content-security-policy: frame-ancestors 'self';
+version: 28.0.7136
+x-cache: MISS
+x-cache-cacheable: false
+x-content-type-options: nosniff
+content-encoding: br
+alt-svc: h3=":443"; ma=86400
+
