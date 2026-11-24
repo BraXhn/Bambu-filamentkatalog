@@ -8,26 +8,33 @@ jobs:
       - run: |
           mkdir out
           UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 BambuKatalog/1.0'
-          get() { n=$1; shift; curl -sS -m 30 -L --compressed -A "$UA" -H 'Accept-Language: sv-SE,sv;q=0.9' -D "out/$n.hdr" -o "out/$n" -w "$n %{http_code} %{size_download} %{url_effective}\n" "$@" >> out/status.txt 2>>out/err.txt || echo "$n FAIL" >> out/status.txt; }
-          get wh-robots.txt https://www.webhallen.com/robots.txt
-          get wh-search.json 'https://www.webhallen.com/api/search?query%5BsortBy%5D=searchRating&query%5Bfilters%5D%5B0%5D%5Btype%5D=searchString&query%5Bfilters%5D%5B0%5D%5Bvalue%5D=bambu%20lab%20filament&query%5Bminimal%5D=false&page=1'
-          get wh-suggest.json 'https://www.webhallen.com/api/search/product-suggestions?query=bambu%20lab%20pla'
-          get wh-search.html 'https://www.webhallen.com/se/search?searchString=bambu%20lab%20filament'
-          get inet-robots.txt https://www.inet.se/robots.txt
-          get inet-search.html 'https://www.inet.se/sok?q=bambu+lab+filament'
-          get inet-api.json 'https://www.inet.se/api/search?q=bambu%20lab%20filament'
-          get inet-cat.html 'https://www.inet.se/kategori/1149/filament'
-          get kjell-robots.txt https://www.kjell.com/robots.txt
-          get kjell-search.html 'https://www.kjell.com/se/sok?query=bambu%20lab%20filament'
-          get kjell-brand.html 'https://www.kjell.com/se/varumarken/bambu-lab'
+          get() { n=$1; shift; curl -sS -m 30 -L --compressed -A "$UA" -H 'Accept-Language: sv-SE,sv;q=0.9' -D "out/$n.hdr" -o "out/$n" -w "$n %{http_code} %{size_download} %{content_type} %{url_effective}\n" "$@" >> out/status.txt 2>>out/err.txt || echo "$n FAIL" >> out/status.txt; }
+          J='Accept: application/json'
+          get wh-pd.json -H "$J" 'https://www.webhallen.com/api/productdiscovery/search/bambu%20lab%20filament?page=1&touchpoint=DESKTOP&totalProductCountSet=false'
+          get wh-pd2.json -H "$J" 'https://www.webhallen.com/api/productdiscovery/search/bambu%20lab%20pla?page=1'
+          get wh-search2.json -H "$J" 'https://www.webhallen.com/api/search?query%5BsortBy%5D=searchRating&query%5Bfilters%5D%5B0%5D%5Btype%5D=searchString&query%5Bfilters%5D%5B0%5D%5Bvalue%5D=bambu%20lab%20filament&query%5Bminimal%5D=false&page=1'
+          get wh-sitemap.xml https://www.webhallen.com/sitemap.xml
+          get wh-main.js 'https://www.webhallen.com/js/generalDataLayer.7136.js'
+          get kjell-cat.html 'https://www.kjell.com/se/produkter/el-verktyg/3d-skrivare-filament/filament'
+          get proshop.html 'https://www.proshop.se/?s=bambu+lab+filament'
+          get netonnet.html 'https://www.netonnet.se/search?query=bambu%20lab%20filament'
+          get elgiganten.html 'https://www.elgiganten.se/search?q=bambu%20lab%20filament'
+          get komplett.html 'https://www.komplett.se/search?q=bambu%20lab%20filament'
+          get dustin.html 'https://www.dustinhome.se/search?q=bambu+lab+filament'
           python3 - <<'PY'
           import os, re
           for f in sorted(os.listdir('out')):
               if f.endswith('.hdr') or f.endswith('.txt'): continue
               s = open('out/'+f, errors='replace').read()
-              print(f, len(s), 'bambu:', len(re.findall('(?i)bambu', s)), 'filament:', len(re.findall('(?i)filament', s)))
+              print(f, len(s), 'bambu:', len(re.findall('(?i)bambu', s)), 'pla:', len(re.findall('(?i)\\bpla\\b', s)), 'title:', (re.findall('<title>([^<]*)', s) or [''])[0][:60])
           PY
-          echo "::notice title=probe::$(cat out/status.txt | tr '\n' ' ')"
+          python3 - > out/summary.txt <<'PY'
+          import os, re
+          for f in sorted(os.listdir('out')):
+              if f.endswith('.hdr') or f.endswith('.txt'): continue
+              s = open('out/'+f, errors='replace').read()
+              print(f, len(s), 'bambu:', len(re.findall('(?i)bambu', s)), 'pla:', len(re.findall('(?i)\\bpla\\b', s)), 'title:', (re.findall('<title>([^<]*)', s) or [''])[0][:60])
+          PY
       - run: |
           cd out && git init -q && git checkout -q -b probe-results && git add -A
           git -c user.name=probe -c user.email=probe@local commit -qm probe
