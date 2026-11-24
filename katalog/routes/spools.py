@@ -52,6 +52,9 @@ class SpoolsRoutes:
                 if not name:
                     raise ValueError('Välj en färg ur katalogen eller skriv ett namn.')
                 color = f.get('color', '').strip()
+                if key:   # katalogfärg: använd katalogens färg, inte formulärets standardfärg
+                    item = next((d for d in _catalog() if d['type'] + '|' + (d['code'] or d['name']) == key), None)
+                    color = (item['hex'][0][:7] if item and item.get('hex') else '')
                 if color and not re.fullmatch(r'#[0-9A-Fa-f]{6}', color):
                     color = ''
                 tare_choice = f.get('tare', 'bambu')
@@ -67,7 +70,7 @@ class SpoolsRoutes:
                                  tare_g=int(tare or 0), remaining_g=round(remaining, 1), opened=self._date(f.get('opened')),
                                  dried=self._date(f.get('dried')), location=f.get('location', '').strip()[:60] or None,
                                  note=f.get('note', '').strip()[:300] or None)
-                return self.get_spools('ok', f'{count} {"spole" if count == 1 else "spolar"} tillagda.')
+                return self.get_spools('ok', 'Spolen är tillagd.' if count == 1 else f'{count} spolar tillagda.')
             m = re.fullmatch(r'/spolar/(\d+)/(vag|andra|torkad|oppnad|arkivera|ateraktivera|ta-bort)', path)
             if not m or not db.get_spool(uid, int(m.group(1))):
                 return self.not_found()
