@@ -147,6 +147,14 @@ def _loop():
             homeassistant.publish_all()
         except Exception as ex:  # noqa: BLE001
             print(f'[home assistant] fel: {ex!r}', flush=True)
+        # Veckosammanfattning (söndag kväll) till dem som valt den.
+        try:
+            from . import weekly
+            n = weekly.run(datetime.datetime.now(TZ), lambda m: print(m, flush=True))
+            if n:
+                print(f'[vecka] sammanfattning skickad till {n} användare', flush=True)
+        except Exception as ex:  # noqa: BLE001
+            print(f'[vecka] fel: {ex!r}', flush=True)
         # Nattens säkerhetskopia.
         try:
             from . import backup

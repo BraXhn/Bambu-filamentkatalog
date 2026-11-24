@@ -93,6 +93,8 @@ class HomeAssistant(Base):
             db.set_pref(self.uid, 'cost_source', 'fast')
             db.save_bambu_token(self.uid, 'a@x', 'global', 'tok', 0)
             db.save_bambu_sync(self.uid, 'ok', matched={'PLA Basic|10101': {'grams': 120, 'total': 1000, 'spools': 1}}, unmatched=[], token='tok')
+            self.assertIsNone(homeassistant.publish_all(force=True))   # utan samtycke skickas inget
+            db.set_pref(self.uid, 'integrations_ok', '1')
             n = homeassistant.publish_all(force=True)
             time.sleep(0.3)
             topics = {t: (m, r) for t, m, r in broker.published}

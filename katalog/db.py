@@ -157,6 +157,32 @@ CREATE TABLE IF NOT EXISTS price_daily (
     best INTEGER NOT NULL,               -- lägsta varupris (kr, 1 kg-förpackning) den dagen
     PRIMARY KEY (key, day)
 );
+CREATE TABLE IF NOT EXISTS spools (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT,                            -- katalognyckel, eller NULL för andra märken
+    name TEXT NOT NULL,                  -- visningsnamn (t.ex. "Polymaker PolyTerra Charcoal")
+    material TEXT,                       -- PLA, PETG ... (för materialguide och torkning)
+    color TEXT,                          -- #RRGGBB
+    net_g INTEGER NOT NULL DEFAULT 1000, -- filament när spolen var ny
+    tare_g INTEGER NOT NULL DEFAULT 250, -- tom spole
+    remaining_g REAL NOT NULL,
+    opened TEXT,                         -- YYYY-MM-DD
+    dried TEXT,                          -- YYYY-MM-DD
+    location TEXT,
+    note TEXT,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created REAL NOT NULL,
+    updated REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS spools_user ON spools(user_id, archived);
+CREATE TABLE IF NOT EXISTS maintenance (
+    printer_id INTEGER NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+    task TEXT NOT NULL,
+    done_ts REAL NOT NULL,
+    done_hours REAL NOT NULL,
+    PRIMARY KEY (printer_id, task)
+);
 CREATE TABLE IF NOT EXISTS cart_shares (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,    -- sha256 av delningslänkens token (själva token lagras aldrig)
@@ -231,6 +257,14 @@ def init():
 
 def _migrate(c):
     """Kolumner som tillkommit efter att tabellen skapats (CREATE TABLE IF NOT EXISTS ändrar inte befintliga)."""
+    # Samtycke för Home Assistant/Spoolman infördes efter att kopplingarna fanns: den som redan var vald behåller
+    # kopplingen (en gång; drar användaren tillbaka samtycket senare gäller det).
+    if not c.execute("SELECT 1 FROM settings WHERE key='integrations_migrated'").fetchone():
+        for setting in ('ha_user_id', 'spoolman_user_id'):
+            r = c.execute('SELECT value FROM settings WHERE key=?', (setting,)).fetchone()
+            if r and str(r[0]).isdigit() and c.execute('SELECT 1 FROM users WHERE id=?', (int(r[0]),)).fetchone():
+                c.execute("INSERT OR IGNORE INTO prefs(user_id,key,value) VALUES(?, 'integrations_ok', '1')", (int(r[0]),))
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('integrations_migrated','1')")
     cols = {r[1] for r in c.execute('PRAGMA table_info(purchases)')}
     if 'weight' not in cols:
         c.execute('ALTER TABLE purchases ADD COLUMN weight INTEGER')
@@ -238,6 +272,9 @@ def _migrate(c):
     for col, typ in (('reason', 'TEXT'), ('project_id', 'INTEGER')):
         if col not in pcols:
             c.execute(f'ALTER TABLE prints ADD COLUMN {col} {typ}')
+    ccols = {r[1] for r in c.execute('PRAGMA table_info(cart)')}
+    if 'shop' not in ccols:
+        c.execute('ALTER TABLE cart ADD COLUMN shop TEXT')    # låst butik för raden (NULL = valfri)
     if 'receipt' not in cols:
         c.execute('ALTER TABLE purchases ADD COLUMN receipt TEXT')   # filnamn under /data/receipts/<användare>/
 
@@ -493,6 +530,7 @@ def restore_from(path):
     finally:
         src.close()
     with _lock:
+        conn().executescript(SCHEMA)   # en äldre kopia saknar nyare tabeller
         _migrate(conn())
 
 
@@ -602,6 +640,56 @@ def save_daily_prices(day, best_by_key):
 
 def daily_prices(key):
     return conn().execute('SELECT day, best FROM price_daily WHERE key=? ORDER BY day', (key,)).fetchall()
+
+
+# --- spolar ---
+SPOOL_FIELDS = ('key', 'name', 'material', 'color', 'net_g', 'tare_g', 'remaining_g', 'opened', 'dried', 'location', 'note', 'archived')
+
+
+def list_spools(user_id, archived=False):
+    return conn().execute('SELECT * FROM spools WHERE user_id=? AND archived=? ORDER BY material, name',
+                          (user_id, 1 if archived else 0)).fetchall()
+
+
+def get_spool(user_id, spool_id):
+    return conn().execute('SELECT * FROM spools WHERE id=? AND user_id=?', (spool_id, user_id)).fetchone()
+
+
+def add_spool(user_id, **f):
+    now = time.time()
+    f = {k: v for k, v in f.items() if k in SPOOL_FIELDS}
+    with tx() as c:
+        return c.execute(f'INSERT INTO spools(user_id,{",".join(f)},created,updated) VALUES(?,{",".join("?" * len(f))},?,?)',
+                         (user_id, *f.values(), now, now)).lastrowid
+
+
+def update_spool(user_id, spool_id, **f):
+    f = {k: v for k, v in f.items() if k in SPOOL_FIELDS}
+    if f:
+        with tx() as c:
+            c.execute(f'UPDATE spools SET {", ".join(k + "=?" for k in f)}, updated=? WHERE id=? AND user_id=?',
+                      (*f.values(), time.time(), spool_id, user_id))
+
+
+def delete_spool(user_id, spool_id):
+    with tx() as c:
+        c.execute('DELETE FROM spools WHERE id=? AND user_id=?', (spool_id, user_id))
+
+
+# --- underhåll ---
+def maintenance_done(printer_id):
+    return {r['task']: r for r in conn().execute('SELECT * FROM maintenance WHERE printer_id=?', (printer_id,))}
+
+
+def set_maintenance_done(printer_id, task, hours):
+    with tx() as c:
+        c.execute('INSERT INTO maintenance(printer_id,task,done_ts,done_hours) VALUES(?,?,?,?) ON CONFLICT(printer_id,task) '
+                  'DO UPDATE SET done_ts=excluded.done_ts, done_hours=excluded.done_hours', (printer_id, task, time.time(), hours))
+
+
+def set_cart_shop(user_id, key, shop):
+    with tx() as c:
+        c.execute('UPDATE cart SET shop=? WHERE user_id=? AND key=?', (shop, user_id, key))
 
 
 # --- inställningar per användare ---
@@ -762,7 +850,7 @@ CART_MAX_QTY = 50
 
 
 def get_cart(user_id):
-    return conn().execute('SELECT key, qty, pack FROM cart WHERE user_id=? ORDER BY added', (user_id,)).fetchall()
+    return conn().execute('SELECT key, qty, pack, shop FROM cart WHERE user_id=? ORDER BY added', (user_id,)).fetchall()
 
 
 def set_cart_item(user_id, key, qty, pack='any'):
