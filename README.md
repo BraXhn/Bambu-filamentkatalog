@@ -136,7 +136,7 @@ Skydd som är inbyggt:
 - **Tradera:** sökningen *bambu lab filament* läses. Bara aktiva annonser från svenska säljare som matchar en färg i katalogen tas med. Annonssidan läses för köp nu-pris, frakt, obligatoriskt köparskydd, skick, vikt och refill/spole.
 - Om en källa inte svarar, eller plötsligt ger noll träffar när den tidigare gav många, behålls dess tidigare priser. Statusen visas under Administration.
 - En körning tar ungefär 10–15 minuter, eftersom anropen sprids ut för att inte belasta butikerna.
-- Flödet *Kontrollera prishämtning* i GitHub Actions kör hämtningen varje måndag mot de riktiga sidorna. Det varnar om en butik har ändrat sitt sidformat.
+- All hämtning sker i containern, från ditt eget nät. Misslyckas en butik två körningar i rad (till exempel för att sidformatet ändrats) visas en varning under *Administration*, och administratörer som angett ett ntfy-ämne på *Önskelista* får en avisering – och en till när butiken fungerar igen. Händelsen skickas även till Home Assistant (`priskalla`).
 
 **Ordinarie pris och rabatt:**
 - I första hand används butikens egen uppgift: Traderas pris före rabatt, 3D Primas listpris, 3DVerkstans och 3DExpertens ordinarie pris/jämförpris, eller ett överstruket pris hos 3DJake.

@@ -92,9 +92,9 @@ Döda bara egna serverprocesser med `pkill -f '^python3 -m katalog'` (inte `pkil
 - `.github/workflows/ci.yml`: enhetstester, integrationstest, soak-test, Unraid-simulering (macvlan),
   publicerar `ghcr.io/braxhn/bambu-filamentkatalog:latest` (amd64+arm64) från `main`.
   Användaren uppdaterar med **Force update** i Unraid; påminn om det efter ändringar.
-- `.github/workflows/prices.yml`: hämtning mot riktiga butiker varje måndag (kan köras manuellt med
-  `gh api -X POST repos/BraXhn/Bambu-filamentkatalog/actions/workflows/prices.yml/dispatches -f ref=main`).
-  Bambu Lab EU svarar inte GitHubs amerikanska servrar, så den källan är inte med där.
+- Prishämtningen körs bara i containern (ingen schemalagd hämtning i GitHub Actions; den togs bort eftersom
+  butiker som Tradera och Bambu Lab EU blockerar GitHubs servrar). `katalog/sourcewatch.py` aviserar administratörer
+  (ntfy + Home Assistant) när en källa misslyckats två körningar i rad, och när den fungerar igen.
 - Container: `python:3.13-alpine` + tini + su-exec, startar som root bara för att chowna `/data` till
   PUID:PGID (99:100), kör sedan som den användaren. Read-only rotfilsystem, `--cap-drop ALL` +
   CHOWN/SETUID/SETGID/DAC_OVERRIDE. Unraid-mall i `unraid/`.
