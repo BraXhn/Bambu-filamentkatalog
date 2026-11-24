@@ -239,8 +239,12 @@ MAINTENANCE = [
 
 def print_hours(user_id, row):
     """Drifttimmar för skrivaren enligt utskriftsloggen (utskrifter vars skrivarnamn innehåller skrivarens namn)."""
-    name = (row['name'] or '').lower()
-    return sum(r['hours'] for r in db.get_prints(user_id, limit=100000) if name and name in (r['printer'] or '').lower())
+    name = (row['name'] or '').strip().lower()
+    if not name:
+        return 0.0
+    r = db.conn().execute("SELECT COALESCE(SUM(hours), 0) AS h FROM prints WHERE user_id=? AND "
+                          "(lower(printer)=? OR lower(printer) LIKE ?)", (user_id, name, name + ' · %')).fetchone()
+    return float(r['h'])
 
 
 def maintenance(user_id, row, now=None):

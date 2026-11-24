@@ -104,7 +104,7 @@ def import_bambu(user_id, link=None):
                         STATUS[t['status']], 'bambu', str(t.get('id'))):
             n += 1
             from . import spools
-            spools.deduct(user_id, dict(grams), start.timestamp())
+            spools.deduct(user_id, dict(grams), start.timestamp(), only_opened=True)   # AMS-spolen räknas redan i Bambu-biblioteket
     return n
 
 

@@ -17,10 +17,7 @@ def build(uid, names, now=None):
     if hits:
         lines.append(f"🔔 {len(hits)} på önskelistan har nått ditt pris: " +
                      ', '.join(f"{k.split('|')[0]} {names.get(k, '')}" for k in sorted(hits)[:6]))
-    link = db.get_bambu(uid)
-    have = {k: v.get('grams', 0) for k, v in (json.loads(link['matched'] or '{}') if link else {}).items()}
-    for k, v in spools.summary(uid).items():
-        have[k] = have.get(k, 0) + v['grams']
+    have = spools.available(uid)
     fc = printlog.forecast(uid, have)
     low_g = int(db.get_pref(uid, 'low_grams') or 200)
     low = sorted(k for k, g in have.items() if g < low_g or (fc.get(k, {}).get('days') is not None and fc[k]['days'] < 14))
@@ -38,7 +35,7 @@ def build(uid, names, now=None):
     week = [r for r in db.get_prints(uid, since=now - 7 * 86400)]
     if week:
         g = sum(sum(json.loads(r['grams'] or '{}').values()) for r in week)
-        failed = sum(r['status'] != 'ok' for r in week)
+        failed = sum(r['status'] == 'failed' for r in week)
         lines.append(f"🖨 {len(week)} utskrifter i veckan, {g:.0f} g för {sum(r['total'] for r in week):.0f} kr"
                      + (f" ({failed} misslyckade)" if failed else '') + '.')
     new = [v for v in newcolors.summary(now).get('upcoming', []) if v.get('first', 0) >= now - 7 * 86400]

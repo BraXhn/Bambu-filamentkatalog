@@ -429,9 +429,7 @@ def _work():
     while True:
         user_id, items = _queue.get()
         try:
-            if items is None:
-                items = [(r['key'], r['qty'], r['pack'], r['shop']) for r in db.get_cart(user_id)]
-            offers, checked = load_offers()
+            items, offers, checked = plan_inputs(user_id)
             catalog = json.loads(config.CATALOG_PATH.read_text(encoding='utf-8'))
             sig = _signature(items, checked)
             with _cache_lock:
@@ -477,3 +475,15 @@ def user_offers(user_id):
     """Erbjudandena med användarens rabattkoder inräknade (för bevakning, kostnadsräknare och projekt)."""
     offers, checked = load_offers()
     return apply_discounts(offers, user_discounts(user_id)), checked
+
+
+def plan_inputs(user_id, discounts=True):
+    """(rader, erbjudanden, signatur) för användarens inköpslista – samma för sidan och bakgrundsberäkningen,
+    så att den grundliga planen hamnar under samma signatur som sidan frågar efter."""
+    from . import db
+    items = [(r['key'], r['qty'], r['pack'], r['shop']) for r in db.get_cart(user_id)]
+    offers, checked = load_offers()
+    disc = user_discounts(user_id) if discounts else {}
+    offers = apply_discounts(offers, disc)
+    sig = f"{checked}|{json.dumps(disc, sort_keys=True)}" if disc else checked
+    return items, offers, sig

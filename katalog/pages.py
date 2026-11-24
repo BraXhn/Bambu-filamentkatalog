@@ -544,7 +544,7 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
     discounts = discounts or {}
     drows = ''.join(f'<div class="field" style="max-width:190px"><label for="d{i}">{e(sname)}</label>'
                     f'<input id="d{i}" name="d_{re.sub(r"[^A-Za-z0-9]", "_", sname)}" type="text" inputmode="decimal" maxlength="5" '
-                    f'value="{e(_num(discounts[sname], 0) if sname in discounts else "")}" placeholder="% rabatt"></div>' for i, sname in enumerate(all_shops))
+                    f'value="{e(_num(discounts[sname], 1).replace(",0", "") if sname in discounts else "")}" placeholder="% rabatt"></div>' for i, sname in enumerate(all_shops))
     disc_html = (f'<section class="card no-print" id="rabatter"><h2>Rabattkoder och medlemspriser</h2>'
                  f'<p class="sub">Har du en rabattkod eller ett medlemspris hos en butik? Ange rabatten i procent, så räknas den in i inköpslistan, '
                  f'prisbevakningen och kostnadsräknaren. Kom ihåg att ange koden i butikens kassa.</p>'
@@ -1002,7 +1002,7 @@ def printer_cards(statuses, names, csrf, maint=None, camera=()):
             rem = f' · {t["remain"]:.0f} % kvar' if t['remain'] is not None and t['remain'] >= 0 else ''
             trays += f'<li{" class=active" if t["active"] else ""}>{sw}<span><b>{name}</b><br><span class="muted" style="font-size:12px">{e(t["slot"])}{rem}{" · används nu" if t["active"] else ""}</span></span></li>'
         mode = 'lokalt' if p['mode'] == 'lan' else 'via Bambu-molnet'
-        cam = (f'<img class="cam" src="/skrivare/{p["id"]}/bild.jpg" alt="Kamerabild från {e(p["name"])}" data-cam="{p["id"]}" loading="lazy">'
+        cam = (f'<img class="cam" src="/skrivare/{p["id"]}/bild.jpg" alt="Kamerabild från {e(p["name"])}" data-cam="{p["id"]}" hidden>'
                if p['id'] in camera else '')
         humid = ''.join(
             f'<span class="badge {"warn" if a["humidity"] is not None and a["humidity"] > 40 else ""}">{e(a["name"])}: '
@@ -1026,7 +1026,7 @@ def printer_cards(statuses, names, csrf, maint=None, camera=()):
 <h2>{e(p['name'])} <span class="muted" style="font-size:13px;font-weight:400">{e(p['model'] or '')} · {mode}</span></h2>{conn}</div>
 <p style="margin:6px 0 0"><b>{e(p['stateText'])}</b>{(' · ' + temps) if temps else ''}</p>{prog}
 {cam}{f'<ul class="ams">{trays}</ul>' if trays else ''}{f'<p class="mt" style="margin-bottom:0">{humid}</p>' if humid else ''}{mt}
-<details class="mt no-print"><summary>Inställningar</summary><form method="post" action="/skrivare/{p['id']}/andra" class="row mt">{h}
+<details class="mt no-print settings"><summary>Inställningar</summary><form method="post" action="/skrivare/{p['id']}/andra" class="row mt">{h}
 <div class="field" style="max-width:190px"><label>Anslutning</label><select name="mode"><option value="cloud"{' selected' if p['mode'] == 'cloud' else ''}>Bambu-molnet</option><option value="lan"{' selected' if p['mode'] == 'lan' else ''}>Lokalt (IP)</option></select></div>
 <div class="field" style="max-width:170px"><label>IP-adress</label><input name="host" type="text" value="{e(p['host'] or '')}" placeholder="192.168.1.50"></div>
 <div class="field" style="max-width:170px"><label>Åtkomstkod</label><input name="code" type="password" autocomplete="off" placeholder="oförändrad"></div>

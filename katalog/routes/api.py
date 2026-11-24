@@ -65,23 +65,19 @@ class ApiRoutes:
             return self.json(401, {'error': 'inte inloggad'})
         items = db.get_owned(u['id'])
         bs = _bambu_summary(u['id'])
-        left = {k: v.get('grams') for k, v in (bs or {}).get('items', {}).items()}
+        from .. import spools as spoolmod
+        left = spoolmod.available(u['id'])
         try:
             spool = json.loads(db.get_pref(u['id'], 'spoolman_matched') or '{}')
         except ValueError:
             spool = {}
-        for k, v in spool.items():
-            left[k] = max(left.get(k) or 0, v.get('grams') or 0)
         ams = {}
         if db.list_printers(u['id']):
             for p in self._printer_status(u['id'], with_prices=False):
                 for t in p['trays']:
                     if t['key']:
                         ams.setdefault(t['key'], []).append(f"{p['name']} · {t['slot']}")
-        from .. import spools as spoolmod
         own_spools = spoolmod.summary(u['id'])
-        for k, v in own_spools.items():
-            left[k] = (left.get(k) or 0) + v['grams']
         self.json(200, {'items': items or [], 'saved': items is not None, 'bambu': bs, 'spoolman': spool, 'ams': ams, 'spools': own_spools,
                         'forecast': printlog.forecast(u['id'], left)})
 
