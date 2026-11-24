@@ -22,7 +22,9 @@ def export(user):
         'owned': db.get_owned(uid) or [],
         'wish': db.get_wish(uid),
         'alerts': rows('SELECT key, target, min_discount FROM alerts WHERE user_id=?', uid),
-        'cart': rows('SELECT key, qty, pack FROM cart WHERE user_id=?', uid),
+        'cart': rows('SELECT key, qty, pack, shop FROM cart WHERE user_id=?', uid),
+        'spools': rows('SELECT key, name, material, color, net_g, tare_g, remaining_g, opened, dried, location, note, archived '
+                       'FROM spools WHERE user_id=?', uid),
         'purchases': rows('SELECT ts, shop, key, qty, unit_price, pack, url, weight FROM purchases WHERE user_id=? ORDER BY ts', uid),
         'prints': [dict(r, grams=json.loads(r['grams'] or '{}')) for r in rows(
             'SELECT ts, name, printer, hours, grams, filament, el, kwh, wear, total, status, reason, source, ext_id, '
@@ -95,6 +97,27 @@ def import_data(uid, data, names):
             if db.set_cart_item(uid, c['key'], min(c['qty'], db.CART_MAX_QTY), c.get('pack') if c.get('pack') in ('any', 'Spole', 'Refill') else 'any'):
                 nc += 1
     n['inköpslista'] = nc
+    for c in data.get('cart') or []:
+        if isinstance(c, dict) and ok(c.get('key')) and isinstance(c.get('shop'), str) and c['shop']:
+            db.set_cart_shop(uid, c['key'], c['shop'][:60])
+    existing_spools = {(s['name'], s['opened'], s['net_g']) for s in db.list_spools(uid) + db.list_spools(uid, archived=True)}
+    nsp = 0
+    for sp in data.get('spools') or []:
+        if not isinstance(sp, dict) or not isinstance(sp.get('name'), str) or not sp['name'].strip():
+            continue
+        ident = (sp['name'][:80], sp.get('opened') if isinstance(sp.get('opened'), str) else None, int(sp.get('net_g') or 1000))
+        if ident in existing_spools:
+            continue
+        num = lambda x, d: float(x) if isinstance(x, (int, float)) and 0 <= x <= 20000 else d  # noqa: E731
+        txt = lambda x, n: x[:n] if isinstance(x, str) and x else None  # noqa: E731
+        db.add_spool(uid, key=sp['key'] if ok(sp.get('key')) else None, name=sp['name'][:80], material=txt(sp.get('material'), 30),
+                     color=sp.get('color') if isinstance(sp.get('color'), str) and len(sp['color']) == 7 and sp['color'].startswith('#') else None,
+                     net_g=int(num(sp.get('net_g'), 1000)), tare_g=int(num(sp.get('tare_g'), 250)), remaining_g=num(sp.get('remaining_g'), 0),
+                     opened=txt(sp.get('opened'), 10), dried=txt(sp.get('dried'), 10), location=txt(sp.get('location'), 60),
+                     note=txt(sp.get('note'), 300), archived=1 if sp.get('archived') else 0)
+        existing_spools.add(ident)
+        nsp += 1
+    n['spolar'] = nsp
     seen = {(r['ts'], r['shop'], r['key']) for r in db.get_purchases(uid, 100_000)}
     npu = 0
     with db.tx() as c:

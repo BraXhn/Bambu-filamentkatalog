@@ -167,8 +167,7 @@ def notify_all(offers, names, log=print):
                 continue
             try:
                 from . import homeassistant
-                if str(homeassistant.settings()['user_id']) == str(uid):
-                    homeassistant.event('malpris', {'farger': [_describe(k, i, names) for k, i, _ in fresh]})
+                homeassistant.event('malpris', {'farger': [_describe(k, i, names) for k, i, _ in fresh]}, uid=uid)
             except Exception:  # noqa: BLE001
                 pass
             err = None

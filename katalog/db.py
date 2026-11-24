@@ -257,6 +257,14 @@ def init():
 
 def _migrate(c):
     """Kolumner som tillkommit efter att tabellen skapats (CREATE TABLE IF NOT EXISTS ändrar inte befintliga)."""
+    # Samtycke för Home Assistant/Spoolman infördes efter att kopplingarna fanns: den som redan var vald behåller
+    # kopplingen (en gång; drar användaren tillbaka samtycket senare gäller det).
+    if not c.execute("SELECT 1 FROM settings WHERE key='integrations_migrated'").fetchone():
+        for setting in ('ha_user_id', 'spoolman_user_id'):
+            r = c.execute('SELECT value FROM settings WHERE key=?', (setting,)).fetchone()
+            if r and str(r[0]).isdigit() and c.execute('SELECT 1 FROM users WHERE id=?', (int(r[0]),)).fetchone():
+                c.execute("INSERT OR IGNORE INTO prefs(user_id,key,value) VALUES(?, 'integrations_ok', '1')", (int(r[0]),))
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('integrations_migrated','1')")
     cols = {r[1] for r in c.execute('PRAGMA table_info(purchases)')}
     if 'weight' not in cols:
         c.execute('ALTER TABLE purchases ADD COLUMN weight INTEGER')
@@ -522,6 +530,7 @@ def restore_from(path):
     finally:
         src.close()
     with _lock:
+        conn().executescript(SCHEMA)   # en äldre kopia saknar nyare tabeller
         _migrate(conn())
 
 

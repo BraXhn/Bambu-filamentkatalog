@@ -21,6 +21,20 @@ STATES = {'RUNNING': 'Skriver ut', 'PREPARE': 'Förbereder', 'PAUSE': 'Pausad', 
 DEFAULT_WATTS = {'a1mini': 80, 'a1': 100, 'p1': 120, 'x1': 130, 'h2': 200}
 
 
+def lan_ip_ok(host):
+    """Skrivarens adress måste vara en vanlig IPv4-adress i det lokala nätet (inte loopback, 0.0.0.0, länklokal
+    eller multicast) – annars kan funktionen användas för att nå containern själv eller andra tjänster."""
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(str(host or ''))
+    except ValueError:
+        return False
+    if _TEST_PLAIN and str(ip) == '127.0.0.1':
+        return True
+    return (ip.version == 4 and ip.is_private and not (ip.is_loopback or ip.is_link_local or ip.is_unspecified
+            or ip.is_multicast or ip.is_reserved) and not str(ip).startswith('0.'))
+
+
 def _merge(dst, src):
     for k, v in src.items():
         if isinstance(v, dict) and isinstance(dst.get(k), dict):
@@ -44,6 +58,8 @@ def _connection(row):
     if row['mode'] == 'lan':
         if not row['host'] or not row['access_code']:
             raise mqtt.MqttError('IP-adress och åtkomstkod krävs för lokal anslutning')
+        if not lan_ip_ok(row['host']):
+            raise mqtt.MqttError('Skrivarens adress är inte en adress i det lokala nätet')
         plain = _TEST_PLAIN and row['host'] == '127.0.0.1'
         port = int(os.environ.get('KATALOG_MQTT_TEST_PORT', '8883')) if plain else 8883
         return row['host'], port, 'bblp', row['access_code'], not plain, False
@@ -251,9 +267,9 @@ def _notify_finished(row, report, state, started):
         if db.get_pref(row['user_id'], 'notify_prints') != '1':
             return
         target = db.get_pref(row['user_id'], 'notify')
-        if not target:
-            return
         from . import alerts
+        if not target or alerts.topic_too_short(target):
+            return
         job = report.get('subtask_name') or 'Utskriften'
         dur = ''
         if started:
@@ -266,7 +282,8 @@ def _notify_finished(row, report, state, started):
         alerts.send(target, title, msg)
         try:
             from . import homeassistant
-            homeassistant.event('utskrift', {'skrivare': row['name'], 'utskrift': job, 'status': 'klar' if state == 'FINISH' else 'misslyckades'})
+            homeassistant.event('utskrift', {'skrivare': row['name'], 'utskrift': job, 'status': 'klar' if state == 'FINISH' else 'misslyckades'},
+                                uid=row['user_id'])
         except Exception:  # noqa: BLE001
             pass
     except Exception as ex:  # noqa: BLE001
@@ -283,14 +300,14 @@ def snapshot(row, max_age=5):
     import socket
     import ssl
     import struct
-    if row['mode'] != 'lan' or not row['host'] or not row['access_code']:
+    if row['mode'] != 'lan' or not row['host'] or not row['access_code'] or not lan_ip_ok(row['host']):
         return None
     model = (row['model'] or '').upper()
     if model.startswith(('X1', 'H2')):
         return None        # X1/H2 strömmar RTSP/H.264, inte JPEG
     hit = _snapshots.get(row['id'])
     if hit and time.time() - hit[0] < max_age:
-        return hit[1]
+        return hit[1]          # även misslyckade försök cachas en stund (None), så att sidan inte öppnar en ny anslutning per bild
     plain = _TEST_PLAIN and row['host'] == '127.0.0.1'
     port = int(os.environ.get('KATALOG_CAMERA_TEST_PORT', CAMERA_PORT)) if plain else CAMERA_PORT
     try:
@@ -318,8 +335,10 @@ def snapshot(row, max_age=5):
                     return None
                 img += chunk
     except (OSError, ssl.SSLError, struct.error):
+        _snapshots[row['id']] = (time.time(), None)
         return None
     if not (img.startswith(b'\xff\xd8') and img.rstrip(b'\0').endswith(b'\xff\xd9')):
+        _snapshots[row['id']] = (time.time(), None)
         return None
     _snapshots[row['id']] = (time.time(), img)
     return img

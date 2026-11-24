@@ -54,10 +54,10 @@ class ShopRoutes:
     def _discounts(self, uid):
         return cart.user_discounts(uid)
 
-    def _cart_plans(self, uid):
+    def _cart_plans(self, uid, discounts=True):
         items = [(r['key'], r['qty'], r['pack'], r['shop']) for r in db.get_cart(uid)]
         offers, checked = cart.load_offers()
-        disc = self._discounts(uid)
+        disc = self._discounts(uid) if discounts else {}
         offers = cart.apply_discounts(offers, disc)
         checked = f"{checked}|{json.dumps(disc, sort_keys=True)}" if disc else checked   # ny rabatt = ny plan
         catalog = _catalog()
@@ -149,6 +149,8 @@ class ShopRoutes:
             return self.redirect('/onskelista')
         if path == '/onskelista/vecka':
             on = f.get('on') == '1'
+            if on and alerts.topic_too_short(db.get_pref(uid, 'notify') or 'https://x/'):
+                return self.get_wish('err', 'Ditt ntfy-ämne är för kort för publika ntfy.sh. Tryck Generera ämne först.', 400)
             db.set_pref(uid, 'weekly', '1' if on else None)
             return self.get_wish('ok', 'Du får en sammanfattning varje söndag kväll.' if on else 'Veckosammanfattningen är avstängd.')
         if path == '/onskelista/nyheter':
@@ -179,7 +181,7 @@ class ShopRoutes:
         owner = db.get_user(uid) if uid else None
         if not owner:
             return self.send(404, pages.error_page(404, 'Länken gäller inte längre', 'Be om en ny länk till inköpslistan.'))
-        items, plan, *_rest = self._cart_plans(uid)
+        items, plan, *_rest = self._cart_plans(uid, discounts=False)   # delningssidan visar inte ägarens rabatter
         checked = _rest[-1].split('|')[0]
         plan = plan if items else None
         self.send(200, pages.shared_list(plan, checked))
