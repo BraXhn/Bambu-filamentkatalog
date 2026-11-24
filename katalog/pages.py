@@ -58,7 +58,7 @@ def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=Non
 <meta name="referrer" content="same-origin">{meta}
 <title>{e(title)} · {e(config.SITE_NAME)}</title><link rel="stylesheet" href="/assets/ui.css">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">{''.join(f'<script src="{e(x)}" defer></script>' for x in js)}</head><body>
-<header class="top"><a class="brand" href="/">{BRAND_MARK}<span>Filamentkatalog</span></a>{nav}{account}</header>
+<header class="top"><a class="brand" href="/">{BRAND_MARK}<span>{e(config.SITE_NAME)}</span></a>{nav}{account}</header>
 <main class="page{' narrow' if narrow else ''}">{body}</main>
 <footer class="foot"><span>{e(config.SITE_NAME)}</span><span>Created by Helicon &amp; BraXhn</span></footer></body></html>"""
 
@@ -195,7 +195,7 @@ def admin(user, csrf, users, runs, next_run, offers_info, msg_kind='', msg='', s
     runs_table = (f'<div class="tablewrap mt"><table><thead><tr><th>Startad</th><th>Resultat</th><th>Källor (antal erbjudanden)</th></tr>'
                   f'</thead><tbody>{rows}</tbody></table></div>') if rows else ''
     prices = f"""<section class="card" id="priser"><h2>Prisuppdatering</h2>
-<p class="sub">Priser hämtas automatiskt från 3DJake, 3D Prima, 3DVerkstan, 3DExperten, Bambu Lab EU och Tradera. Om en källa inte svarar behålls dess senaste priser. All hämtning sker i containern; misslyckas en butik två körningar i rad aviseras administratörer som angett ett ntfy-ämne under Önskelista.</p>
+<p class="sub">Priser hämtas automatiskt från 3DJake, 3D Prima, 3DVerkstan, 3DExperten, Bambu Lab EU och Tradera. Om en källa inte svarar behålls dess senaste priser. Administratörer med ntfy-ämne aviseras om en butik misslyckas två gånger i rad.</p>
 <div class="stats"><div class="stat"><span>Senaste körning</span><strong>{last_txt}</strong></div>
 <div class="stat"><span>Nästa schemalagda</span><strong>{e(next_run)}</strong></div>
 <div class="stat"><span>Erbjudanden just nu</span><strong>{e(offers_info)}</strong></div></div>
@@ -384,9 +384,9 @@ def _bulk_box(sh):
     for b in sh['bulk']:
         rolls = f'{b["rolls"]} {"st" if sh["shop"] != "Bambu Lab EU" else ("rulle" if b["rolls"] == 1 else "rullar")}'
         if b['reached']:
-            items += f'<li><b>{e(b["label"])}</b>: {rolls}: {e(b["desc"])}. <b>Du sparar {_kr(b["saved"])}.</b>'
+            items += f'<li><b>{e(b["label"])}</b>, {rolls}: {e(b["desc"])}. <b>Du sparar {_kr(b["saved"])}.</b>'
         else:
-            items += f'<li><b>{e(b["label"])}</b>: {rolls} – ingen rabatt ännu.'
+            items += f'<li><b>{e(b["label"])}</b>, {rolls}: ingen rabatt ännu.'
         if b['next']:
             items += f' <span class="muted">{e(b["next"])}</span>'
         items += '</li>'
@@ -615,9 +615,8 @@ def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_k
             'så bevakas priset vid varje prisuppdatering.</p>')
     if notify_enabled:
         notify_html = f"""<section class="card"><h2>Avisering till mobilen</h2>
-<p class="sub">Installera appen <b>ntfy</b> (gratis, Android och iPhone), prenumerera på ett eget, svårgissat ämne och skriv in det här.
-Du får en avisering när en bevakning når ditt pris. Samma träff aviseras igen bara om priset sjunker mer.
-ntfy.sh är öppet: den som gissar ämnet kan läsa aviseringarna, så välj ett långt slumpat ämne (eller tryck <i>Generera ämne</i>) som inte avslöjar vem du är.</p>
+<p class="sub">Aviseringar skickas via appen <b>ntfy</b> (Android och iPhone) när en bevakning når ditt pris, och igen bara om priset sjunker mer.
+ntfy.sh är öppet för alla som känner till ämnet, så använd ett långt slumpat ämne (<i>Generera ämne</i>).</p>
 <form method="post" action="/onskelista/avisering" class="row">{h}
 <div class="field" style="max-width:360px"><label for="nt">ntfy-ämne eller adress</label>
 <input id="nt" name="target" type="text" maxlength="200" value="{e(notify or '')}" placeholder="t.ex. filament-a8k2m" autocomplete="off" spellcheck="false"></div>
@@ -626,7 +625,7 @@ ntfy.sh är öppet: den som gissar ämnet kan läsa aviseringarna, så välj ett
 <button class="btn ghost small" type="submit" name="do" value="generera">Generera ämne</button>
 {'<button class="btn danger small" type="submit" name="do" value="ta-bort">Stäng av</button>' if notify else ''}</div></form>
 <form method="post" action="/onskelista/nyheter" class="mt">{h}<input type="hidden" name="on" value="{'0' if notify_new else '1'}">
-<p class="sub" style="margin-bottom:8px">{'Du aviseras när Bambu Lab får nya färger eller filamenttyper.' if notify_new else 'Vill du också få en avisering när Bambu Lab får nya färger eller filamenttyper?'}
+<p class="sub" style="margin-bottom:8px">{'Du aviseras när Bambu Lab får nya färger eller filamenttyper.' if notify_new else 'Avisering när Bambu Lab får nya färger eller filamenttyper.'}
 {'' if notify else ' Ange ett ntfy-ämne ovan först.'}</p>
 <button class="btn ghost small" type="submit"{'' if notify or notify_new else ' disabled'}>{'Sluta avisera om nya färger' if notify_new else 'Avisera om nya färger'}</button></form>
 <form method="post" action="/onskelista/vecka" class="mt">{h}<input type="hidden" name="on" value="{'0' if weekly else '1'}">
@@ -758,13 +757,13 @@ def cost_page(user, csrf, form, names, res, intervals, errors, has_tibber, msg_k
     sources = [(v, t + ('' if v != 'tibber' or has_tibber else ' (koppla nedan)')) for v, t in costcalc.SOURCES.items()]
     form_html = f"""<form method="post" action="/kostnad/rakna" id="costForm">{h}
 <section class="card"><h2>Utskriften</h2>
-<p class="sub">Skriv in vad slicern (Bambu Studio, OrcaSlicer) visar, eller läs in filen nedan. Flera färger = en rad per färg.</p>
+<p class="sub">Skriv in vad slicern (Bambu Studio, OrcaSlicer) visar, eller läs in filen nedan. Ange en rad per färg.</p>
 <div class="row" style="margin-bottom:14px"><div class="field"><label for="costFile">Läs in från slicer-fil (.gcode.3mf eller .gcode)</label>
 <input id="costFile" type="file" accept=".3mf,.gcode,.gco"></div></div><p id="costFileStatus" class="muted" role="status" style="font-size:13px;margin:-6px 0 12px"></p>
 <div class="tablewrap"><table><thead><tr><th>Färg</th><th>Gram</th></tr></thead><tbody id="costRows">{rows}</tbody></table></div>
 <details{' open' if more_open else ''}><summary>Fler färger (5–8)</summary><div class="tablewrap mt"><table><tbody>{more}</tbody></table></div></details>
-<div class="row mt"><div class="field" style="max-width:120px"><label for="ch">Tid, timmar</label><input id="ch" name="h" type="text" inputmode="numeric" maxlength="5" value="{e(form['h'])}"></div>
-<div class="field" style="max-width:120px"><label for="cm">minuter</label><input id="cm" name="m" type="text" inputmode="numeric" maxlength="5" value="{e(form['m'])}"></div>
+<div class="row mt"><div class="field" style="max-width:120px"><label for="ch">Timmar</label><input id="ch" name="h" type="text" inputmode="numeric" maxlength="5" value="{e(form['h'])}"></div>
+<div class="field" style="max-width:120px"><label for="cm">Minuter</label><input id="cm" name="m" type="text" inputmode="numeric" maxlength="5" value="{e(form['m'])}"></div>
 <div class="field" style="max-width:240px"><label for="cs">Starttid</label><input id="cs" name="start" type="datetime-local" value="{e(form['start'])}"></div></div>
 <p class="muted" style="font-size:12px;margin:6px 0 0">Lämna starttiden tom för att starta nu.</p></section>
 <section class="card"><h2>Skrivare och el</h2>
@@ -785,7 +784,7 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
 <p class="muted" style="font-size:12px;margin:8px 0 0">Eget pris används för rader utan färg och när katalogen saknar pris. Slitage: t.ex. munstycke, PEI-platta och avskrivning per drifttimme.</p></section>
 <div class="row" style="margin-bottom:22px"><button class="btn" type="submit" name="do" value="rakna">Räkna ut</button>
 <button class="btn ghost" type="submit" name="do" value="spara">Räkna ut och spara som standard</button></div>
-<section class="card"><h2>Spara eller sälj</h2>
+<section class="card"><h2>Spara och offert</h2>
 <div class="row"><div class="field"><label for="cname">Namn på utskriften</label><input id="cname" name="name" type="text" maxlength="120" value="{e(form.get('name', ''))}" placeholder="t.ex. Hylla till verkstan"></div>
 {f'<div class="field" style="max-width:220px"><label for="cproj">Projekt</label><select id="cproj" name="project"><option value="">Inget</option>' + ''.join(f'<option value="{p["id"]}"{" selected" if str(p["id"]) == form.get("project") else ""}>{e(p["name"])}</option>' for p in projects) + '</select></div>' if projects else ''}
 <div><button class="btn ghost" type="submit" name="do" value="logga">Spara i utskriftsloggen</button></div></div>
@@ -844,7 +843,7 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
     if live or has_tibber:
         parts = []
         if live:
-            parts.append(f'<div class="stat"><span>Elpris just nu</span><strong>{_num(live["now"])} kr/kWh</strong></div>')
+            parts.append(f'<div class="stat"><span>Nu</span><strong>{_num(live["now"])} kr/kWh</strong></div>')
             if live['low']:
                 parts.append(f'<div class="stat"><span>Lägst närmaste 12 h</span><strong>{_num(live["low"][1])} kr/kWh</strong>'
                              f'<span>{_day_time(live["low"][0], live["at"])}</span></div>')
@@ -858,7 +857,7 @@ Tibbers pris innehåller redan energiskatt och moms men inte nätavgiften.</p></
                                      f'{_num(p)} kr/kWh, {_num(100 * (1 - p / live["now"]), 0)} % billigare än nu.')
         elif live:
             advice = message('ok', 'Elpriset sjunker inte nämnvärt de närmaste timmarna.')
-        now_html = f'<section class="card" id="justnu"><h2>Just nu</h2><div class="stats">{"".join(parts)}</div>{advice}</section>'
+        now_html = f'<section class="card" id="justnu"><h2>Elpris</h2><div class="stats">{"".join(parts)}</div>{advice}</section>'
     tibber = f"""<section class="card" id="tibber"><h2>Tibber</h2>
 <p class="sub">{'Tibber är kopplat. Tokenet visas aldrig igen; ta bort och klistra in ett nytt för att byta.' if has_tibber else
 'Hämta ditt eget elpris från Tibber: logga in på <a href="https://developer.tibber.com" target="_blank" rel="noopener">developer.tibber.com</a>, '
@@ -1054,7 +1053,7 @@ def printers_page(user, csrf, statuses, names, has_bambu, msg_kind='', msg='', m
 <form method="post" action="/skrivare/aviseringar">{h}<input type="hidden" name="on" value="{'0' if notify_prints else '1'}">
 <button class="btn ghost small" type="submit"{'' if has_notify or notify_prints else ' disabled'}>{'Stäng av' if notify_prints else 'Slå på'}</button></form></section>
 <section class="card"><h2>Lägg till skrivare lokalt</h2>
-<p class="sub">Snabbast och fungerar utan Bambu-molnet. IP-adress och åtkomstkod finns på skrivarens skärm under nätverksinställningar
+<p class="sub">Ansluter direkt i det lokala nätet, utan Bambu-molnet. IP-adress och åtkomstkod finns på skrivarens skärm under nätverksinställningar
 (på A1/P1: <i>Inställningar &gt; WLAN</i>). Serienumret finns under <i>Inställningar &gt; Enhet</i>. Katalogen läser bara status och skickar inga kommandon.</p>
 <form method="post" action="/skrivare/ny" class="row" autocomplete="off">{h}
 <div class="field" style="max-width:200px"><label for="pn">Namn</label><input id="pn" name="name" type="text" maxlength="60" placeholder="t.ex. Verkstan"></div>
@@ -1172,7 +1171,7 @@ def groupbuy_page(user, csrf, parts, names, result, catalog_names, allowed, msg_
                f'<div class="tablewrap"><table><thead><tr><th>Person</th><th class="right">Varor</th><th class="right">Andel frakt m.m.</th><th class="right">Att betala</th><th class="right">Själv</th></tr></thead>'
                f'<tbody>{prow}</tbody></table></div><p class="muted" style="font-size:12px;margin:10px 0 0">Varje person betalar sina varor; frakt och köparskydd delas efter varuvärde per butik.</p></section>{shops}')
     body = f"""<h1>Samköp</h1><p class="lead">Lägg ihop inköpslistor med andra användare så att fri frakt och mängdrabatter nås tillsammans.</p>
-{message(msg_kind, e(msg))}<section class="card"><h2>Vilka är med?</h2>
+{message(msg_kind, e(msg))}<section class="card"><h2>Deltagare</h2>
 <form method="post" action="/samkop/rakna">{h}{me_hidden}<div class="checks">{boxes}</div>
 {'' if len(parts) > 1 else '<p class="muted">Ingen annan har tillåtit samköp än.</p>'}<button class="btn mt" type="submit">Räkna ut samköp</button></form>{consent}</section>{out}"""
     return layout('Samköp', body, user, csrf, 'inkop')
@@ -1191,10 +1190,10 @@ def api_tokens_section(csrf, tokens, new_token, base_url, msg_kind='', msg=''):
 Nyckeln ger bara läsåtkomst till dina egna uppgifter. Svaret är en mening som Siri eller Google kan läsa upp (lägg till <code>?format=json</code> för JSON).</p>
 {message(msg_kind, e(msg))}{shown}
 <ul style="font-size:13px;line-height:1.8;margin:0 0 14px;padding-left:18px">
-<li><code>{ex}/api/v1/filament?q=svart pla</code> – hur mycket som finns kvar och hur länge det räcker</li>
-<li><code>{ex}/api/v1/elpris</code> – elpriset nu och lägst närmaste 12 timmarna</li>
-<li><code>{ex}/api/v1/skrivare</code> – vad skrivarna gör just nu</li>
-<li><code>{ex}/api/v1/sammanfattning</code> – bevakningar, snart slut och inköpslistan</li></ul>
+<li>Filament kvar och hur länge det räcker: <code>{ex}/api/v1/filament?q=svart pla</code></li>
+<li>Elpris nu och lägst närmaste 12 timmarna: <code>{ex}/api/v1/elpris</code></li>
+<li>Skrivarnas status: <code>{ex}/api/v1/skrivare</code></li>
+<li>Bevakningar, snart slut och inköpslistan: <code>{ex}/api/v1/sammanfattning</code></li></ul>
 <p class="sub">Skicka nyckeln i rubriken <code>Authorization: Bearer &lt;nyckel&gt;</code>.</p>
 {f'<div class="tablewrap"><table><thead><tr><th>Namn</th><th class="hide-sm">Skapad</th><th>Senast använd</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>' if rows else ''}
 <form method="post" action="/konto/api-nyckel" class="row mt">{h}<div class="field" style="max-width:280px"><label for="tkn">Namn på nyckeln</label>
@@ -1230,7 +1229,7 @@ Port 8883 används med TLS. Lämna adressen tom för att stänga av.</p>
 <div class="field" style="max-width:110px"><label>Port</label><input name="port" type="text" inputmode="numeric" value="{e(str(ha['port']))}"></div>
 <div class="field" style="max-width:200px"><label>Användarnamn</label><input name="user" type="text" value="{e(ha['user'] or '')}"></div>
 <div class="field" style="max-width:200px"><label>Lösenord</label><input name="password" type="password" placeholder="{'oförändrat' if ha['password'] else ''}"></div></div>
-<div class="row mt"><div class="field" style="max-width:220px"><label>Vems data</label><select name="user_id"><option value="">Välj…</option>{users(ha['user_id'])}</select></div>
+<div class="row mt"><div class="field" style="max-width:220px"><label>Användare</label><select name="user_id"><option value="">Välj…</option>{users(ha['user_id'])}</select></div>
 <div class="field" style="max-width:220px"><label>Upptäcktsprefix</label><input name="prefix" type="text" value="{e(ha['prefix'])}"></div>
 <div><button class="btn ghost small" type="submit">Spara</button></div></div></form>
 <form method="post" action="/admin/homeassistant/testa" class="mt">{h}<button class="btn ghost small" type="submit">Skicka sensorer nu</button></form>
@@ -1239,7 +1238,7 @@ Port 8883 används med TLS. Lämna adressen tom för att stänga av.</p>
 (skapar tillverkare, filament och spolar och uppdaterar gram kvar). Synkas med Bambu-synken. Spoolman måste ligga i det lokala nätet.</p>
 <form method="post" action="/admin/spoolman">{h}<div class="row">
 <div class="field"><label>Spoolman-adress</label><input name="url" type="text" value="{e(sm['url'])}" placeholder="http://192.168.1.10:7912"></div>
-<div class="field" style="max-width:220px"><label>Vems katalog</label><select name="user_id"><option value="">Välj…</option>{users(sm['user_id'])}</select></div></div>
+<div class="field" style="max-width:220px"><label>Användare</label><select name="user_id"><option value="">Välj…</option>{users(sm['user_id'])}</select></div></div>
 <label class="check mt"><input type="checkbox" name="push" value="1"{' checked' if sm['push'] else ''}> Skicka även Bambu-bibliotekets spolar till Spoolman</label>
 <div class="mt"><button class="btn ghost small" type="submit">Spara</button></div></form>
 <form method="post" action="/admin/spoolman/synka" class="mt">{h}<button class="btn ghost small" type="submit">Synka med Spoolman nu</button></form>{st_html}</section>"""

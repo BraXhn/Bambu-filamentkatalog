@@ -195,7 +195,7 @@ class AccountRoutes:
         name = f.get('name', '').strip()[:60] or 'API-nyckel'
         token = 'kat_' + security.new_token()
         db.create_api_token(uid, name, security.token_hash(token))
-        return self.get_account(new_token=token, tkind='ok', tmsg='Kopiera nyckeln nu – den visas bara en gång.')
+        return self.get_account(new_token=token, tkind='ok', tmsg='Kopiera nyckeln nu. Den visas bara en gång.')
 
     # ---------- svar för genvägar och röstassistenter (API-nyckel eller inloggning) ----------
     def api_v1(self, path):
