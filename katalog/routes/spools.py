@@ -63,7 +63,7 @@ class SpoolsRoutes:
                 net = self._grams(f.get('net_g'), 'Vikt som ny', 10000) or 1000
                 gross = self._grams(f.get('gross'), 'Vägd vikt', 12000)
                 remaining = spools.from_weight(gross, tare or 0) if gross is not None else net
-                count = max(1, min(20, int(f.get('count') or 1))) if str(f.get('count') or '1').isdigit() else 1
+                count = max(1, min(20, int(f.get('count') or 1))) if str(f.get('count') or '1').isdecimal() else 1
                 if len(db.list_spools(uid)) + len(db.list_spools(uid, archived=True)) + count > 500:
                     raise ValueError('Högst 500 spolar. Ta bort arkiverade spolar du inte behöver.')
                 material = (f.get('material', '').strip()[:30] or (key.split('|')[0] if key else '')) or None

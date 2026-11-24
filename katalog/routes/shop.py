@@ -55,11 +55,7 @@ class ShopRoutes:
         return cart.user_discounts(uid)
 
     def _cart_plans(self, uid, discounts=True):
-        items = [(r['key'], r['qty'], r['pack'], r['shop']) for r in db.get_cart(uid)]
-        offers, checked = cart.load_offers()
-        disc = self._discounts(uid) if discounts else {}
-        offers = cart.apply_discounts(offers, disc)
-        checked = f"{checked}|{json.dumps(disc, sort_keys=True)}" if disc else checked   # ny rabatt = ny plan
+        items, offers, checked = cart.plan_inputs(uid, discounts)
         catalog = _catalog()
         plan = cart.cached_plan(uid, items, offers, catalog, checked) if items else cart.plan([], offers, catalog)
         budget = _int(db.get_pref(uid, 'budget'), None)
@@ -72,9 +68,9 @@ class ShopRoutes:
         offers, _ = cart.load_offers()
         shops_for = {}
         for o in offers:
-            if o.get('kind') == 'fixed':
+            if o.get('kind') == 'fixed' and cart._live(o, datetime.datetime.now(datetime.timezone.utc)):
                 shops_for.setdefault(o['key'], set()).add(cart.shop_name(o))
-        self.send(code, pages.shopping_list(u, self.session()['csrf'], buy, items, _catalog_names(), checked.split('|')[0], kind, msg,
+        self.send(code, pages.shopping_list(u, self.session()['csrf'], buy, items, _catalog_names(), (checked or '').split('|')[0], kind, msg,
                                             budget=budget, waiting=wait, full=plan, shared=bool(db.get_share(u['id'])),
                                             share_url=share_url, purchases=db.get_purchases(u['id'], 60),
                                             shops_for={k: sorted(v) for k, v in shops_for.items()},
@@ -182,7 +178,7 @@ class ShopRoutes:
         if not owner:
             return self.send(404, pages.error_page(404, 'Länken gäller inte längre', 'Be om en ny länk till inköpslistan.'))
         items, plan, *_rest = self._cart_plans(uid, discounts=False)   # delningssidan visar inte ägarens rabatter
-        checked = _rest[-1].split('|')[0]
+        checked = (_rest[-1] or '').split('|')[0]
         plan = plan if items else None
         self.send(200, pages.shared_list(plan, checked))
 

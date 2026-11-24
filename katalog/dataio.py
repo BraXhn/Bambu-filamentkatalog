@@ -105,10 +105,10 @@ def import_data(uid, data, names):
     for sp in data.get('spools') or []:
         if not isinstance(sp, dict) or not isinstance(sp.get('name'), str) or not sp['name'].strip():
             continue
-        ident = (sp['name'][:80], sp.get('opened') if isinstance(sp.get('opened'), str) else None, int(sp.get('net_g') or 1000))
+        num = lambda x, d: float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and 0 <= x <= 20000 else d  # noqa: E731
+        ident = (sp['name'][:80], sp.get('opened') if isinstance(sp.get('opened'), str) else None, int(num(sp.get('net_g'), 1000)))
         if ident in existing_spools:
             continue
-        num = lambda x, d: float(x) if isinstance(x, (int, float)) and 0 <= x <= 20000 else d  # noqa: E731
         txt = lambda x, n: x[:n] if isinstance(x, str) and x else None  # noqa: E731
         db.add_spool(uid, key=sp['key'] if ok(sp.get('key')) else None, name=sp['name'][:80], material=txt(sp.get('material'), 30),
                      color=sp.get('color') if isinstance(sp.get('color'), str) and len(sp['color']) == 7 and sp['color'].startswith('#') else None,

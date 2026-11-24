@@ -20,7 +20,8 @@ TARES = [
 
 
 def today():
-    return datetime.date.today()
+    from .energy import TZ
+    return datetime.datetime.now(TZ).date()          # svensk tid, inte containerns UTC
 
 
 def dry_status(spool, now=None):
@@ -51,7 +52,7 @@ def needs_drying(user_id):
     return [s for s in db.list_spools(user_id) if s['opened'] and (dry_status(s) or (False,))[0]]
 
 
-def deduct(user_id, grams_by_key, ts=None):
+def deduct(user_id, grams_by_key, ts=None, only_opened=False):
     """Drar av förbrukningen från öppnade spolar (minst kvar först); öppnar en ny spole om det behövs.
     Med ts räknas bara spolar som fanns när utskriften gjordes (gamla utskrifter från Bambu-molnet drar inget)."""
     used = {}
@@ -60,7 +61,7 @@ def deduct(user_id, grams_by_key, ts=None):
             continue
         left = float(grams)
         candidates = sorted((s for s in db.list_spools(user_id) if s['key'] == key and s['remaining_g'] > 0
-                             and (ts is None or s['created'] <= ts)),
+                             and (ts is None or s['created'] <= ts) and (s['opened'] or not only_opened)),
                             key=lambda s: (not s['opened'], s['remaining_g']))
         for s in candidates:
             if left <= 0:
@@ -85,3 +86,20 @@ def export_rows(user_id):
 
 def dumps(rows):
     return json.dumps(rows, ensure_ascii=False)
+
+
+def available(user_id):
+    """Gram kvar per katalogfärg med en enda regel: det största av Bambu-biblioteket, Spoolman och egna spolar
+    (samma spole kan finnas registrerad på flera ställen, så värdena summeras inte)."""
+    have = {}
+    link = db.get_bambu(user_id)
+    for k, v in (json.loads(link['matched'] or '{}') if link else {}).items():
+        have[k] = max(have.get(k, 0), v.get('grams') or 0)
+    try:
+        for k, v in json.loads(db.get_pref(user_id, 'spoolman_matched') or '{}').items():
+            have[k] = max(have.get(k, 0), v.get('grams') or 0)
+    except ValueError:
+        pass
+    for k, v in summary(user_id).items():
+        have[k] = max(have.get(k, 0), v['grams'])
+    return have

@@ -56,6 +56,15 @@ class Spools(Base):
         spools.deduct(self.uid, {'PLA Basic|10101': 10}, ts=before)          # gammal utskrift: spolen fanns inte
         self.assertEqual(db.get_spool(self.uid, b)['remaining_g'], 950)
 
+    def test_available_one_rule_and_bambu_import(self):
+        db.save_bambu_token(self.uid, 'a@x', 'global', 'tok', 0)
+        db.save_bambu_sync(self.uid, 'ok', matched={'PLA Basic|10101': {'grams': 500, 'total': 1000, 'spools': 1}}, unmatched=[], token='tok')
+        db.set_pref(self.uid, 'spoolman_matched', json.dumps({'PLA Basic|10101': {'grams': 600, 'spools': 1}}))
+        reserve = db.add_spool(self.uid, key='PLA Basic|10101', name='Reserv', material='PLA Basic', remaining_g=300)
+        self.assertEqual(spools.available(self.uid)['PLA Basic|10101'], 600)   # största värdet, inte summan
+        spools.deduct(self.uid, {'PLA Basic|10101': 50}, ts=time.time() + 10, only_opened=True)
+        self.assertEqual(db.get_spool(self.uid, reserve)['remaining_g'], 300)  # oöppnad reserv orörd vid Bambu-import
+
     def test_materials(self):
         self.assertTrue(materials.for_type('PETG-CF')['hardened'])
         self.assertEqual(materials.for_type('PA6-CF')['open_days'], 3)

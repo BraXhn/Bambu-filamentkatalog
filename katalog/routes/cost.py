@@ -122,18 +122,9 @@ class CostRoutes:
 
     def _available(self, uid):
         """Gram kvar per katalogfärg: Bambu-biblioteket och Spoolman (det största värdet per färg)."""
-        have = {}
-        link = db.get_bambu(uid)
-        for k, v in (json.loads(link['matched'] or '{}') if link else {}).items():
-            have[k] = max(have.get(k, 0), v.get('grams') or 0)
         from .. import spools
-        for k, v in spools.summary(uid).items():
-            have[k] = have.get(k, 0) + v['grams']
-        try:
-            for k, v in json.loads(db.get_pref(uid, 'spoolman_matched') or '{}').items():
-                have[k] = max(have.get(k, 0), v.get('grams') or 0)
-        except ValueError:
-            pass
+        link = db.get_bambu(uid)
+        have = spools.available(uid)
         return have, bool(link) or bool(db.get_pref(uid, 'spoolman_matched')) or bool(db.list_spools(uid))
 
     def _shortage(self, uid, rows):
