@@ -8,8 +8,8 @@ import zipfile
 from . import db
 
 VERSION = 1
-SECRET_PREFS = {'tibber_token', 'bambu_uid'}
-PREF_KEYS = {'budget', 'low_grams', 'notify', 'notify_new', 'samkop_ok', 'cost_watts', 'cost_source', 'cost_area', 'cost_extra',
+SECRET_PREFS = {'tibber_token', 'bambu_uid', 'notify'}   # ntfy-ämnet fungerar som en hemlighet
+PREF_KEYS = {'budget', 'low_grams', 'notify_new', 'samkop_ok', 'cost_watts', 'cost_source', 'cost_area', 'cost_extra',
              'cost_fixed', 'cost_vat', 'cost_mode', 'cost_kg', 'cost_wear'}
 
 

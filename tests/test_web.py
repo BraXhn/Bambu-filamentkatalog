@@ -207,7 +207,7 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'abc','do':'spara'}); ok(s==400,'ogiltig budget nekas')
         s,h,b=req(a,'/inkopslista/dela',{'csrf':t6}); link=re.search(r'value="(https?://[^"]+/delad/[^"]+)"',b); ok(s==200 and link,'skapa delningslänk')
         anon,_=client(); path=urllib.parse.urlsplit(link.group(1)).path
-        s,h,b=req(anon,path); ok(s==200 and 'Delad av' in b and 'csrf' not in b,'delad lista visas utan inloggning')
+        s,h,b=req(anon,path); ok(s==200 and 'Delad inköpslista' in b and 'csrf' not in b and 'agare' not in b,'delad lista visas utan inloggning och utan namn')
         s,h,b=req(a,'/inkopslista/dela',{'csrf':t6}); s,h,b=req(anon,path); ok(s==404,'gammal länk slutar gälla när en ny skapas')
         s,h,b=req(anon,'/delad/'+'x'*43); ok(s==404,'påhittad länk ger 404')
         # säkerhetskopia

@@ -25,6 +25,7 @@ from .routes.cost import CostRoutes
 from .routes.printers import PrintersRoutes
 from .routes.prints import PrintsRoutes
 from .routes.shop import ShopRoutes
+from .routes.spools import SpoolsRoutes
 
 STARTUP_ERROR = None   # sätts om datamappen inte går att använda; visas då på alla sidor
 
@@ -87,10 +88,13 @@ class _ConnReader:
         return getattr(self._raw, name)
 
 
-class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes, PrintsRoutes, ShopRoutes,
+class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes, PrintsRoutes, ShopRoutes, SpoolsRoutes,
               BaseHTTPRequestHandler):
     server_version = 'katalog'
     sys_version = ''
+    # Neutrala felsidor (inte http.servers standardtext som avslöjar programvaran).
+    error_message_format = '<!doctype html><title>%(code)d</title><p>%(code)d %(message)s</p>'
+    error_content_type = 'text/html; charset=utf-8'
     protocol_version = 'HTTP/1.1'     # keep-alive för snabb sidladdning
     timeout = 10                      # sekunder per läsning; stänger även vilande keep-alive
     disable_nagle_algorithm = True    # annars ~40 ms extra per svar (Nagle + fördröjd ACK)
@@ -118,6 +122,7 @@ class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes,
 
     def _log(self, code, size):
         path = ''.join(c if c.isprintable() and c != '"' else '?' for c in urllib.parse.urlsplit(self.path).path[:120])
+        path = re.sub(r'^/delad/[^/]+', '/delad/***', path)   # delningslänkens token hamnar inte i loggen
         ms = int((time.monotonic() - getattr(self, '_t0', time.monotonic())) * 1000)
         if path != '/healthz':
             print(f'{self.client_ip} "{self.command} {path}" {code} {size} {ms}ms', flush=True)
@@ -397,6 +402,8 @@ class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes,
                 return self.api_v1(path)
             if path == '/api/printers':
                 return self.api_printers()
+            if path == '/api/materials':
+                return self.api_materials()
             if path == '/api/tibber/live':
                 return self.api_tibber_live()
             m = re.fullmatch(r'/delad/([A-Za-z0-9_-]{20,80})', path)
@@ -424,6 +431,10 @@ class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes,
                 return self.get_prints()
             if path == '/skrivare':
                 return self.get_printers()
+            if path == '/material':
+                return self.get_materials()
+            if path == '/spolar':
+                return self.get_spools()
             if path == '/projekt':
                 return self.get_projects()
             if path == '/samkop':
@@ -509,6 +520,8 @@ class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes,
                 return self.send(401, pages.error_page(401, 'Inte inloggad', 'Logga in och försök igen.'))
             if path == '/konto/losenord':
                 return self.post_password()
+            if path == '/konto/integrationer':
+                return self.integrations_consent()
             if path == '/konto/api-nyckel' or path.startswith('/konto/api-nyckel/'):
                 return self.api_token_post(path)
             if path == '/konto/logga-ut-andra':
@@ -527,6 +540,8 @@ class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes,
                 return self.prints_post(path)
             if path.startswith('/skrivare/'):
                 return self.printers_post(path)
+            if path.startswith('/spolar/'):
+                return self.spools_post(path)
             if path.startswith('/projekt/'):
                 return self.projects_post(path)
             if path.startswith('/samkop/'):

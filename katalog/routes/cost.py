@@ -126,12 +126,15 @@ class CostRoutes:
         link = db.get_bambu(uid)
         for k, v in (json.loads(link['matched'] or '{}') if link else {}).items():
             have[k] = max(have.get(k, 0), v.get('grams') or 0)
+        from .. import spools
+        for k, v in spools.summary(uid).items():
+            have[k] = have.get(k, 0) + v['grams']
         try:
             for k, v in json.loads(db.get_pref(uid, 'spoolman_matched') or '{}').items():
                 have[k] = max(have.get(k, 0), v.get('grams') or 0)
         except ValueError:
             pass
-        return have, bool(link) or bool(db.get_pref(uid, 'spoolman_matched'))
+        return have, bool(link) or bool(db.get_pref(uid, 'spoolman_matched')) or bool(db.list_spools(uid))
 
     def _shortage(self, uid, rows):
         """[(nyckel, behövs, finns)] för färger där det som finns kvar inte räcker till utskriften."""
@@ -173,6 +176,9 @@ class CostRoutes:
                 new_id = db.add_print(uid, res['start'].timestamp(), form['name'] or 'Utskrift', printer, res['hours'], grams,
                                       res['filament'], res['el']['cost'], res['el']['kwh'], res['wear'], res['total'])
                 proj = f.get('project', '')
+                if new_id:
+                    from .. import spools
+                    spools.deduct(uid, grams)
                 if new_id and proj.isdigit() and db.get_project(uid, int(proj)):
                     db.update_print(uid, new_id, project_id=int(proj))
                 return self.redirect('/utskrifter?m=sparad')
