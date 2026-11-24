@@ -43,11 +43,16 @@ def _live(o, now):
         return False
 
 
-def candidates(key, pack, offers, now):
-    """Köpbara erbjudanden för en färg: fast pris, nytt/oanvänt, rätt förpackning; helst 1 kg."""
+def shop_name(o):
+    """Butiken utan säljardel ('Tradera · Säljare' -> 'Tradera')."""
+    return str(o.get('shop') or '').split(' · ')[0]
+
+
+def candidates(key, pack, offers, now, shop=None):
+    """Köpbara erbjudanden för en färg: fast pris, nytt/oanvänt, rätt förpackning (och låst butik); helst 1 kg."""
     ok = [o for o in offers if o['key'] == key and o.get('kind') == 'fixed' and _live(o, now)
           and o.get('condition') in ('Ny', 'Oanvänt') and isinstance(o.get('price'), (int, float))
-          and (pack == 'any' or o.get('pack') == pack)]
+          and (pack == 'any' or o.get('pack') == pack) and (not shop or shop_name(o) == shop)]
     one_kg = [o for o in ok if o.get('weight') == 1000]
     return one_kg or ok
 
@@ -195,7 +200,7 @@ def _total(assign):
 
 
 def plan(items, offers, catalog, now=None, budget=2.0):
-    """items: [(key, qty, pack)] -> dict med butiker, rader, saknade och summor."""
+    """items: [(key, qty, pack[, låst butik])] -> dict med butiker, rader, saknade och summor."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     # Förbättringsstegen växer snabbt med antalet enheter och håller GIL: efter tidsbudgeten används
     # bästa lösningen hittills så att en stor lista inte låser hela servern.
@@ -203,10 +208,12 @@ def plan(items, offers, catalog, now=None, budget=2.0):
     timed_out = []
     by_key = {d['type'] + '|' + (d['code'] or d['name']): d for d in catalog}
     units, cands, missing = [], [], []
-    for key, qty, pack in items:
-        c = candidates(key, pack, offers, now)
+    for item in items:
+        key, qty, pack = item[:3]
+        shop = item[3] if len(item) > 3 else None
+        c = candidates(key, pack, offers, now, shop)
         if not c:
-            missing.append({'key': key, 'qty': qty, 'pack': pack, 'item': by_key.get(key)})
+            missing.append({'key': key, 'qty': qty, 'pack': pack, 'item': by_key.get(key), 'shop': shop})
             continue
         for _ in range(qty):
             units.append((key, pack))
@@ -352,7 +359,7 @@ def within_budget(items, offers, catalog, limit, base=None, now=None):
             unit_cost[l['key']] = (bool(o.get('discount')), l.get('bulkPrice') or o['price'])
     # Enheter i den ordning de ska vänta.
     order = []
-    for key, qty, pack in items:
+    for key, qty, pack, *_ in items:
         if key in unit_cost:
             order += [(key, pack)] * qty
     order.sort(key=lambda u: (unit_cost[u[0]][0], -unit_cost[u[0]][1]))
@@ -366,7 +373,7 @@ def within_budget(items, offers, catalog, limit, base=None, now=None):
             key, pack = order.pop(0)
             waiting[(key, pack)] += 1
             over -= unit_cost[key][1]
-        rest = [(k, q - waiting[(k, p)], p) for k, q, p in items if q - waiting[(k, p)] > 0]
+        rest = [(k, q - waiting[(k, p)], p, *x) for k, q, p, *x in items if q - waiting[(k, p)] > 0]
         current = plan(rest, offers, catalog, now, budget=0.3)
     wait = [(k, q, p) for (k, p), q in waiting.items() if q > 0]
     return current, wait
@@ -422,9 +429,7 @@ def _work():
     while True:
         user_id, items = _queue.get()
         try:
-            if items is None:
-                items = [(r['key'], r['qty'], r['pack']) for r in db.get_cart(user_id)]
-            offers, checked = load_offers()
+            items, offers, checked = plan_inputs(user_id)
             catalog = json.loads(config.CATALOG_PATH.read_text(encoding='utf-8'))
             sig = _signature(items, checked)
             with _cache_lock:
@@ -441,3 +446,44 @@ def _work():
                 hit = _cache.get(user_id)
                 if hit:
                     hit[1]['complete'] = True
+
+
+# --- Rabattkoder och medlemspriser per butik (per användare) ---
+def apply_discounts(offers, discounts):
+    """Kopior av erbjudandena med användarens rabatt i procent per butik dragen från varupriset."""
+    if not discounts:
+        return offers
+    out = []
+    for o in offers:
+        pct = discounts.get(shop_name(o))
+        if pct and isinstance(o.get('price'), (int, float)):
+            o = dict(o, price=round(o['price'] * (1 - pct / 100)), codeDiscount=pct)
+        out.append(o)
+    return out
+
+
+def user_discounts(user_id):
+    from . import db
+    try:
+        d = json.loads(db.get_pref(user_id, 'discounts') or '{}')
+        return {k: float(v) for k, v in d.items() if isinstance(v, (int, float)) and 0 < v < 100}
+    except ValueError:
+        return {}
+
+
+def user_offers(user_id):
+    """Erbjudandena med användarens rabattkoder inräknade (för bevakning, kostnadsräknare och projekt)."""
+    offers, checked = load_offers()
+    return apply_discounts(offers, user_discounts(user_id)), checked
+
+
+def plan_inputs(user_id, discounts=True):
+    """(rader, erbjudanden, signatur) för användarens inköpslista – samma för sidan och bakgrundsberäkningen,
+    så att den grundliga planen hamnar under samma signatur som sidan frågar efter."""
+    from . import db
+    items = [(r['key'], r['qty'], r['pack'], r['shop']) for r in db.get_cart(user_id)]
+    offers, checked = load_offers()
+    disc = user_discounts(user_id) if discounts else {}
+    offers = apply_discounts(offers, disc)
+    sig = f"{checked}|{json.dumps(disc, sort_keys=True)}" if disc else checked
+    return items, offers, sig

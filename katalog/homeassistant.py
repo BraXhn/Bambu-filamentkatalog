@@ -26,6 +26,21 @@ def enabled():
     return bool(s['host'] and s['user_id'])
 
 
+def check_host(host, port):
+    """Brokern ska ligga i det egna nätet: sensorerna innehåller skrivarnamn och lager och skickas som retained."""
+    import ipaddress
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return f'Hittar inte {host}.'
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not (ip.is_private or ip.is_loopback) or ip.is_link_local:
+            return 'MQTT-brokern måste ligga i det lokala nätet (privat IP-adress).'
+    return None
+
+
 def _client(s):
     tls = s['port'] == 8883
     return mqtt.Client(s['host'], s['port'], s['user'] or None, s['password'] or None, tls=tls, verify=False, timeout=8).connect()
@@ -74,13 +89,39 @@ def collect(uid):
     return out
 
 
+def _clear_retained(s):
+    """Tomma retained-meddelanden tar bort tidigare skickade sensorer (konfiguration och värden) ur brokern."""
+    try:
+        topics = json.loads(db.get_setting('ha_published') or '[]')
+    except ValueError:
+        topics = []
+    if not topics:
+        return
+    try:
+        c = _client(s)
+        try:
+            for t in topics:
+                c.publish(t, b'', retain=True)
+        finally:
+            c.close()
+        db.delete_setting('ha_published')
+    except (mqtt.MqttError, OSError) as ex:
+        print(f'[home assistant] sensorer kunde inte tas bort: {ex}', flush=True)
+
+
 def publish_all(force=False):
     if not enabled() or (not force and time.time() - _last['ts'] < INTERVAL):
         return None
     _last['ts'] = time.time()
     s = settings()
+    if check_host(s['host'], s['port']):
+        return None
+    if not _consented(s):
+        _clear_retained(s)
+        return None   # användaren har dragit tillbaka sitt samtycke: ta bort sensorerna ur brokern
     uid = int(s['user_id'])
     sensors = collect(uid)
+    published = []
     c = _client(s)
     try:
         for sid, name, value, unit, icon in sensors:
@@ -92,17 +133,28 @@ def publish_all(force=False):
                 cfg['state_class'] = 'measurement'
             c.publish(f"{s['prefix']}/sensor/{uniq}/config", json.dumps(cfg, ensure_ascii=False), retain=True)
             c.publish(state_topic, str(value), retain=True)
+            published += [f"{s['prefix']}/sensor/{uniq}/config", state_topic]
     finally:
         c.close()
+    db.set_setting('ha_published', json.dumps(published))
     return len(sensors)
 
 
-def event(kind, data):
-    """Händelse till Home Assistant (används i automationer): ämnet katalog/event, JSON med type + data."""
+def _consented(s):
+    owner = db.get_user(int(s['user_id'])) if str(s['user_id'] or '').isdigit() else None
+    return bool(owner) and (owner['is_admin'] or db.get_pref(owner['id'], 'integrations_ok') == '1')
+
+
+def event(kind, data, uid=None):
+    """Händelse till Home Assistant (används i automationer): ämnet katalog/event, JSON med type + data.
+    Personliga händelser (uid) skickas bara för den användare som är vald för Home Assistant och har samtyckt."""
     if not enabled():
         return
+    s = settings()
+    if check_host(s['host'], s['port']) or (uid is not None and (str(uid) != str(s['user_id']) or not _consented(s))):
+        return
     try:
-        c = _client(settings())
+        c = _client(s)
         try:
             c.publish('katalog/event', json.dumps({'type': kind, **data}, ensure_ascii=False))
         finally:

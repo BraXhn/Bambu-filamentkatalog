@@ -13,6 +13,18 @@ import urllib.request
 from . import config, db
 
 TOPIC = re.compile(r'[A-Za-z0-9_-]{1,64}')
+MIN_PUBLIC_TOPIC = 12            # publika ntfy.sh: vem som helst som gissar ämnet kan läsa aviseringarna
+PUBLIC_NTFY = {'ntfy.sh'}
+
+
+def topic_too_short(url):
+    host, topic = url.split('//')[1].split('/', 1)
+    return host in PUBLIC_NTFY and len(topic) < MIN_PUBLIC_TOPIC
+
+
+def random_topic():
+    import secrets
+    return 'filament-' + secrets.token_hex(6)
 
 
 def _live(o, now):
@@ -107,8 +119,8 @@ def send(target, title, message, click=None):
         return 'Aviseringsadressen är inte tillåten.'
     base, topic = url.rsplit('/', 1)
     body = {'topic': topic, 'title': title[:200], 'message': message[:3000], 'tags': ['shopping_cart']}
-    if click:
-        body['click'] = click
+    if click and base.split('//')[1] not in PUBLIC_NTFY:
+        body['click'] = click        # sajtens adress skickas bara till egen ntfy-server, inte till publika ntfy.sh
     req = urllib.request.Request(base + '/', data=json.dumps(body).encode('utf-8'), method='POST',
                                  headers={'Content-Type': 'application/json', 'User-Agent': 'BambuKatalog/1.0'})
     try:
@@ -139,9 +151,11 @@ def notify_all(offers, names, log=print):
         try:
             alerts = db.get_alerts(uid)
             target = db.get_pref(uid, 'notify')
+            from . import cart
+            user_offers = cart.apply_discounts(offers, cart.user_discounts(uid))
             fresh = []
             for key, a in alerts.items():
-                info = best(key, offers)
+                info = best(key, user_offers)
                 if not is_hit(a, info):
                     if a['notified']:
                         db.set_alert_notified(uid, key, None)   # nästa träff aviseras igen
@@ -153,8 +167,7 @@ def notify_all(offers, names, log=print):
                 continue
             try:
                 from . import homeassistant
-                if str(homeassistant.settings()['user_id']) == str(uid):
-                    homeassistant.event('malpris', {'farger': [_describe(k, i, names) for k, i, _ in fresh]})
+                homeassistant.event('malpris', {'farger': [_describe(k, i, names) for k, i, _ in fresh]}, uid=uid)
             except Exception:  # noqa: BLE001
                 pass
             err = None

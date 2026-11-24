@@ -170,6 +170,9 @@ def sync(log=print):
     if not enabled():
         return None
     uid = int(s['user_id'])
+    owner = db.get_user(uid)
+    if not owner or (not owner['is_admin'] and db.get_pref(uid, 'integrations_ok') != '1'):
+        return 'error', 'Användaren har inte tillåtit synk med Spoolman.'
     msg = []
     try:
         if s['push']:

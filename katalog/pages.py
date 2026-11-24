@@ -38,7 +38,7 @@ def layout(title, body, user=None, csrf='', active='', narrow=False, refresh=Non
     if user:
         items = [('/', 'Katalog', 'katalog'), ('/onskelista', 'Önskelista', 'onske'), ('/inkopslista', 'Inköpslista', 'inkop'),
                  ('/kostnad', 'Kostnad', 'kostnad'), ('/utskrifter', 'Utskrifter', 'utskrifter'), ('/skrivare', 'Skrivare', 'skrivare'),
-                 ('/projekt', 'Projekt', 'projekt'), ('/konto', 'Mitt konto', 'konto')]
+                 ('/spolar', 'Spolar', 'spolar'), ('/projekt', 'Projekt', 'projekt'), ('/konto', 'Mitt konto', 'konto')]
         if user['is_admin']:
             items.append(('/admin', 'Administration', 'admin'))
         links = ''.join(f'<a href="{h}"{" aria-current=page" if k == active else ""}>{t}</a>' for h, t, k in items)
@@ -437,7 +437,8 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
         for l in sh['lines']:
             o, d = l['offer'], l['item'] or {}
             name = f"{d.get('type', l['key'].split('|')[0])} · {d.get('name', l['key'].split('|')[-1])}"
-            disc = (f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else '') + timing_badge(o)
+            disc = (f' <span class="badge bad">−{o["discount"]} %</span>' if o.get('discount') else '') + timing_badge(o) + \
+                (f' <span class="badge ok">din rabatt −{_num(o["codeDiscount"], 0)} %</span>' if o.get('codeDiscount') else '')
             rows += (f'<tr><td><b>{e(name)}</b>{disc}<br><span class="muted" style="font-size:12px">{e(o.get("title", ""))}</span></td>'
                      f'<td class="hide-sm">{e(o.get("pack", ""))} {o.get("weight") or "?"} g</td>'
                      + (f'<td class="right"><span style="white-space:nowrap">{l["qty"]} × <s class="muted">{_kr(o["price"])}</s></span> '
@@ -467,7 +468,7 @@ Priser från {e(when) or 'senaste sökningen'} – kontrollera pris och lager in
             d = m['item'] or {}
             q = urllib.parse.quote(f"Bambu Lab {d.get('type', '')} {d.get('name', '')}".strip())
             mrows += (f'<li><b>{e(d.get("type", m["key"]))} · {e(d.get("name", ""))}</b> ({m["qty"]} st'
-                      f'{", " + e(m["pack"]) if m["pack"] != "any" else ""}) – '
+                      f'{", " + e(m["pack"]) if m["pack"] != "any" else ""}{", bara " + e(m["shop"]) if m.get("shop") else ""}) – '
                       f'<a href="https://www.prisjakt.nu/search?search={q}" target="_blank" rel="noopener">sök på Prisjakt ↗</a> · '
                       f'<a href="https://www.tradera.com/search?q={q}" target="_blank" rel="noopener">Tradera ↗</a></li>')
         missing = (f'<section class="card"><h2>Inget köpbart erbjudande just nu</h2><p class="sub">Ingår inte i totalen.</p>'
@@ -480,7 +481,7 @@ def _print_button():
 
 
 def shopping_list(user, csrf, plan, items, names, checked_at, msg_kind='', msg='', budget=None, waiting=(),
-                  full=None, shared=False, share_url=None, purchases=()):
+                  full=None, shared=False, share_url=None, purchases=(), shops_for=None, discounts=None, all_shops=()):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     history_html = _purchases_html(purchases, names, csrf)
     if not items:
@@ -523,7 +524,12 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
 {_print_button()}<a class="btn ghost small" href="/samkop">Samköp med andra</a></div></section>"""
 
     edit_rows = ''
-    for key, qty, pack in items:
+    shops_for = shops_for or {}
+    for key, qty, pack, *rest in items:
+        locked = rest[0] if rest else None
+        shop_opts = '<option value="">Valfri butik</option>' + ''.join(
+            f'<option value="{e(sname)}"{" selected" if sname == locked else ""}>Bara {e(sname)}</option>'
+            for sname in sorted(set(shops_for.get(key, [])) | ({locked} if locked else set())))
         label = names.get(key, key.split('|')[-1])
         typ = key.split('|')[0]
         opts = ''.join(f'<option value="{v}"{" selected" if v == pack else ""}>{t}</option>'
@@ -532,8 +538,18 @@ Här ser du sedan var varje filament är billigast att köpa och vad allt kostar
 <form method="post" action="/inkopslista/rad" class="row cart-edit">{h}<input type="hidden" name="key" value="{e(key)}">
 <input type="number" name="qty" value="{qty}" min="0" max="50" aria-label="Antal" style="width:74px;padding:8px">
 <select name="pack" aria-label="Förpackning" style="width:auto;padding:8px">{opts}</select>
+<select name="shop" aria-label="Butik" style="width:auto;padding:8px">{shop_opts}</select>
 <button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
 <button class="btn danger small" type="submit" name="do" value="ta-bort">Ta bort</button></form></td></tr>"""
+    discounts = discounts or {}
+    drows = ''.join(f'<div class="field" style="max-width:190px"><label for="d{i}">{e(sname)}</label>'
+                    f'<input id="d{i}" name="d_{re.sub(r"[^A-Za-z0-9]", "_", sname)}" type="text" inputmode="decimal" maxlength="5" '
+                    f'value="{e(_num(discounts[sname], 1).replace(",0", "") if sname in discounts else "")}" placeholder="% rabatt"></div>' for i, sname in enumerate(all_shops))
+    disc_html = (f'<section class="card no-print" id="rabatter"><h2>Rabattkoder och medlemspriser</h2>'
+                 f'<p class="sub">Har du en rabattkod eller ett medlemspris hos en butik? Ange rabatten i procent, så räknas den in i inköpslistan, '
+                 f'prisbevakningen och kostnadsräknaren. Kom ihåg att ange koden i butikens kassa.</p>'
+                 f'<form method="post" action="/inkopslista/rabatter">{h}<div class="row">{drows}</div>'
+                 f'<button class="btn ghost small mt" type="submit">Spara rabatter</button></form></section>') if all_shops else ''
     edit = f"""<section class="card no-print"><h2>Ändra listan</h2><p class="sub">Antal 0 tar bort raden. Välj förpackning om du bara vill ha spole eller refill.
 Med en budget visas vad du kan köpa nu och vad som kan vänta.</p>
 <div class="tablewrap"><table><tbody>{edit_rows}</tbody></table></div>{budget_form}
@@ -541,16 +557,17 @@ Med en budget visas vad du kan köpa nu och vad som kan vänta.</p>
     plan_html = _plan_html(plan, checked_at, 'Köp nu' if budget and waiting else 'Uppskattat totalt', csrf) \
         if plan['totals']['units'] or plan['missing'] else ''
     body = (f'<h1>Inköpslista</h1><p class="lead">Var du bör köpa varje filament och vad det kostar totalt.</p>'
-            f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{share_html}{history_html}')
+            f'{message(msg_kind, e(msg))}{pending_html}{wait_html}{plan_html}{edit}{disc_html}{share_html}{history_html}')
     return layout('Inköpslista', body, user, csrf, 'inkop', refresh=8 if pending else None, scripts=('/assets/print.js', '/assets/receipt.js'))
 
 
-def shared_list(owner, plan, checked_at):
+def shared_list(plan, checked_at):
+    # Ingen uppgift om vem som delar: länken kan spridas vidare.
     if not plan:
-        body = f'<h1>Inköpslista</h1><p class="lead">{e(owner)}s inköpslista är tom just nu.</p>'
+        body = '<h1>Delad inköpslista</h1><p class="lead">Inköpslistan är tom just nu.</p>'
     else:
-        body = (f'<h1>Inköpslista</h1><p class="lead">Delad av <b>{e(owner)}</b>. Var varje filament är billigast att köpa och vad det kostar. '
-                f'Listan uppdateras när {e(owner)} ändrar den.</p><p class="no-print">{_print_button()}</p>{_plan_html(plan, checked_at)}')
+        body = (f'<h1>Delad inköpslista</h1><p class="lead">Var varje filament är billigast att köpa och vad det kostar. '
+                f'Listan uppdateras när den ändras.</p><p class="no-print">{_print_button()}</p>{_plan_html(plan, checked_at)}')
     return layout('Delad inköpslista', body, scripts=('/assets/print.js',))
 
 
@@ -585,7 +602,7 @@ def _purchases_html(purchases, names, csrf=''):
             f'<tbody>{rows}</tbody></table></div></details></section>')
 
 
-def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_kind='', msg='', notify_new=False, calendar=None):
+def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_kind='', msg='', notify_new=False, calendar=None, weekly=False):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     lead = ('<p class="lead">Färger du vill köpa senare. Sätt ett målpris (inklusive frakt) eller en minsta rabatt, '
             'så bevakas priset vid varje prisuppdatering.</p>')
@@ -593,17 +610,21 @@ def wish_page(user, csrf, rows, names, notify, notify_enabled, checked_at, msg_k
         notify_html = f"""<section class="card"><h2>Avisering till mobilen</h2>
 <p class="sub">Installera appen <b>ntfy</b> (gratis, Android och iPhone), prenumerera på ett eget, svårgissat ämne och skriv in det här.
 Du får en avisering när en bevakning når ditt pris – en gång per träff, och igen bara om priset sjunker mer.
-Ämnet är inte hemligt för ntfy, så välj ett namn som inte avslöjar vem du är.</p>
+ntfy.sh är öppet: den som gissar ämnet kan läsa aviseringarna, så välj ett långt slumpat ämne (eller tryck <i>Generera ämne</i>) som inte avslöjar vem du är.</p>
 <form method="post" action="/onskelista/avisering" class="row">{h}
 <div class="field" style="max-width:360px"><label for="nt">ntfy-ämne eller adress</label>
 <input id="nt" name="target" type="text" maxlength="200" value="{e(notify or '')}" placeholder="t.ex. filament-a8k2m" autocomplete="off" spellcheck="false"></div>
 <div><button class="btn ghost small" type="submit" name="do" value="spara">Spara</button>
 <button class="btn ghost small" type="submit" name="do" value="testa">Spara och skicka test</button>
+<button class="btn ghost small" type="submit" name="do" value="generera">Generera ämne</button>
 {'<button class="btn danger small" type="submit" name="do" value="ta-bort">Stäng av</button>' if notify else ''}</div></form>
 <form method="post" action="/onskelista/nyheter" class="mt">{h}<input type="hidden" name="on" value="{'0' if notify_new else '1'}">
 <p class="sub" style="margin-bottom:8px">{'Du aviseras när Bambu Lab får nya färger eller filamenttyper.' if notify_new else 'Vill du också få en avisering när Bambu Lab får nya färger eller filamenttyper?'}
 {'' if notify else ' Ange ett ntfy-ämne ovan först.'}</p>
-<button class="btn ghost small" type="submit"{'' if notify or notify_new else ' disabled'}>{'Sluta avisera om nya färger' if notify_new else 'Avisera om nya färger'}</button></form></section>"""
+<button class="btn ghost small" type="submit"{'' if notify or notify_new else ' disabled'}>{'Sluta avisera om nya färger' if notify_new else 'Avisera om nya färger'}</button></form>
+<form method="post" action="/onskelista/vecka" class="mt">{h}<input type="hidden" name="on" value="{'0' if weekly else '1'}">
+<p class="sub" style="margin-bottom:8px">{'Du får en veckosammanfattning varje söndag kväll.' if weekly else 'Veckosammanfattning varje söndag kväll: målpriser, snart slut, torkning, underhåll, veckans utskrifter och nya färger.'}</p>
+<button class="btn ghost small" type="submit"{'' if notify or weekly else ' disabled'}>{'Stäng av veckosammanfattningen' if weekly else 'Slå på veckosammanfattning'}</button></form></section>"""
     else:
         notify_html = ''
     if not rows:
@@ -953,7 +974,7 @@ def backups_html(csrf, backups, backup_time, keep):
 
 
 # ---------- skrivare ----------
-def printer_cards(statuses, names, csrf):
+def printer_cards(statuses, names, csrf, maint=None, camera=()):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     if not statuses:
         return '<p class="muted">Inga skrivare tillagda än.</p>'
@@ -981,11 +1002,31 @@ def printer_cards(statuses, names, csrf):
             rem = f' · {t["remain"]:.0f} % kvar' if t['remain'] is not None and t['remain'] >= 0 else ''
             trays += f'<li{" class=active" if t["active"] else ""}>{sw}<span><b>{name}</b><br><span class="muted" style="font-size:12px">{e(t["slot"])}{rem}{" · används nu" if t["active"] else ""}</span></span></li>'
         mode = 'lokalt' if p['mode'] == 'lan' else 'via Bambu-molnet'
+        cam = (f'<img class="cam" src="/skrivare/{p["id"]}/bild.jpg" alt="Kamerabild från {e(p["name"])}" data-cam="{p["id"]}" hidden>'
+               if p['id'] in camera else '')
+        humid = ''.join(
+            f'<span class="badge {"warn" if a["humidity"] is not None and a["humidity"] > 40 else ""}">{e(a["name"])}: '
+            + (f'{a["humidity"]:.0f} % fukt' if a['humidity'] is not None else f'fukt nivå {e(str(a["level"]))}' if a['level'] else 'fukt okänd')
+            + (' – byt torkmedel' if a['humidity'] is not None and a['humidity'] > 40 else '') + '</span> ' for a in p.get('ams') or [])
+        mt = ''
+        if maint and p['id'] in maint:
+            items, hours = maint[p['id']]
+            due = [i for i in items if i['due']]
+            rows_ = ''.join(
+                f'<li class="{"due" if i["due"] else "soon" if i["soon"] else ""}"><span>{e(i["text"])}<br><span class="muted" style="font-size:12px">'
+                + (f'{_num(i["since_h"], 0)} av {i["every_h"]} h' if i['every_h'] else '')
+                + (' · ' if i['every_h'] and i['every_days'] else '')
+                + (f'{_num(i["since_d"], 0)} av {i["every_days"]} dagar' if i['every_days'] else '')
+                + (f' · senast {fmt_time(i["done"])[:10]}' if i['done'] else '')
+                + f'</span></span><form method="post" action="/skrivare/{p["id"]}/underhall/{i["task"]}"><input type="hidden" name="csrf" value="{e(csrf)}">'
+                  f'<button class="btn ghost small" type="submit">Gjort</button></form></li>' for i in items)
+            mt = (f'<details class="mt"{" open" if due else ""}><summary>Underhåll {"– <b>" + str(len(due)) + " att göra</b>" if due else "(inget att göra)"}'
+                  f' · {_num(hours, 0)} drifttimmar enligt loggen</summary><ul class="maint">{rows_}</ul></details>')
         out += f"""<section class="card printer"><div class="row" style="justify-content:space-between;align-items:baseline">
 <h2>{e(p['name'])} <span class="muted" style="font-size:13px;font-weight:400">{e(p['model'] or '')} · {mode}</span></h2>{conn}</div>
 <p style="margin:6px 0 0"><b>{e(p['stateText'])}</b>{(' · ' + temps) if temps else ''}</p>{prog}
-{f'<ul class="ams">{trays}</ul>' if trays else ''}
-<details class="mt no-print"><summary>Inställningar</summary><form method="post" action="/skrivare/{p['id']}/andra" class="row mt">{h}
+{cam}{f'<ul class="ams">{trays}</ul>' if trays else ''}{f'<p class="mt" style="margin-bottom:0">{humid}</p>' if humid else ''}{mt}
+<details class="mt no-print settings"><summary>Inställningar</summary><form method="post" action="/skrivare/{p['id']}/andra" class="row mt">{h}
 <div class="field" style="max-width:190px"><label>Anslutning</label><select name="mode"><option value="cloud"{' selected' if p['mode'] == 'cloud' else ''}>Bambu-molnet</option><option value="lan"{' selected' if p['mode'] == 'lan' else ''}>Lokalt (IP)</option></select></div>
 <div class="field" style="max-width:170px"><label>IP-adress</label><input name="host" type="text" value="{e(p['host'] or '')}" placeholder="192.168.1.50"></div>
 <div class="field" style="max-width:170px"><label>Åtkomstkod</label><input name="code" type="password" autocomplete="off" placeholder="oförändrad"></div>
@@ -995,12 +1036,16 @@ def printer_cards(statuses, names, csrf):
     return out
 
 
-def printers_page(user, csrf, statuses, names, has_bambu, msg_kind='', msg=''):
+def printers_page(user, csrf, statuses, names, has_bambu, msg_kind='', msg='', maint=None, camera=(), notify_prints=False, has_notify=False):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     cloud = (f'<form method="post" action="/skrivare/hamta" style="margin-bottom:18px">{h}<button class="btn" type="submit">Hämta skrivare från Bambu Lab-kontot</button></form>'
              if has_bambu else '<p class="sub">Koppla ditt Bambu Lab-konto under <a href="/konto">Mitt konto</a> för att hitta skrivarna automatiskt, eller lägg till en skrivare lokalt nedan.</p>')
     body = f"""<h1>Skrivare</h1><p class="lead">Status i realtid, vad som sitter i AMS och vad den pågående utskriften kostar i el.</p>
-{message(msg_kind, e(msg))}{cloud}<div id="printerCards" aria-live="polite">{printer_cards(statuses, names, csrf)}</div>
+{message(msg_kind, e(msg))}{cloud}<div id="printerCards" aria-live="polite">{printer_cards(statuses, names, csrf, maint, camera)}</div>
+<section class="card"><h2>Avisering när en utskrift är klar</h2><p class="sub">{'Du får en avisering via ntfy när en utskrift är klar eller misslyckas.' if notify_prints else 'Få en avisering via ntfy när en utskrift är klar eller misslyckas.'}
+{'' if has_notify else ' Ange först ett ntfy-ämne under <a href="/onskelista">Önskelista</a>.'}</p>
+<form method="post" action="/skrivare/aviseringar">{h}<input type="hidden" name="on" value="{'0' if notify_prints else '1'}">
+<button class="btn ghost small" type="submit"{'' if has_notify or notify_prints else ' disabled'}>{'Stäng av' if notify_prints else 'Slå på'}</button></form></section>
 <section class="card"><h2>Lägg till skrivare lokalt</h2>
 <p class="sub">Snabbast och fungerar utan Bambu-molnet. IP-adress och åtkomstkod finns på skrivarens skärm under nätverksinställningar
 (på A1/P1: <i>Inställningar → WLAN</i>). Serienumret finns under <i>Inställningar → Enhet</i>. Katalogen läser bara status och skickar inga kommandon.</p>
@@ -1149,8 +1194,13 @@ Nyckeln ger bara läsåtkomst till dina egna uppgifter. Svaret är en mening som
 <input id="tkn" name="name" type="text" maxlength="60" placeholder="t.ex. iPhone Genvägar"></div><div><button class="btn ghost" type="submit">Skapa API-nyckel</button></div></form></section>"""
 
 
-def data_section(csrf):
-    return f"""<section class="card" id="data"><h2>Exportera och importera</h2>
+def data_section(csrf, integrations_ok=False):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    consent = (f'<section class="card" id="integrationer"><h2>Home Assistant och Spoolman</h2><p class="sub">'
+               f'{"Administratören får välja att skicka dina skrivare, ditt filament och elpris till Home Assistant och synka med Spoolman." if integrations_ok else "Din data skickas inte till Home Assistant eller Spoolman. Administratören kan bara välja din data om du tillåter det."}</p>'
+               f'<form method="post" action="/konto/integrationer">{h}<input type="hidden" name="on" value="{"0" if integrations_ok else "1"}">'
+               f'<button class="btn ghost small" type="submit">{"Sluta tillåta" if integrations_ok else "Tillåt"}</button></form></section>')
+    return consent + f"""<section class="card" id="data"><h2>Exportera och importera</h2>
 <p class="sub">Alla dina uppgifter (markeringar, önskelista och bevakningar, inköpslista, köp, utskrifter, projekt och inställningar utan lösenord och nycklar)
 som JSON för att flytta till en annan server, eller som CSV-filer för Excel. Importen lägger till och uppdaterar – inget tas bort.</p>
 <div class="row"><a class="btn ghost" href="/konto/export.json">Exportera som JSON</a><a class="btn ghost" href="/konto/export.zip">Exportera som CSV (zip)</a></div>
@@ -1186,3 +1236,84 @@ Port 8883 används med TLS. Lämna adressen tom för att stänga av.</p>
 <label class="check mt"><input type="checkbox" name="push" value="1"{' checked' if sm['push'] else ''}> Skicka även Bambu-bibliotekets spolar till Spoolman</label>
 <div class="mt"><button class="btn ghost small" type="submit">Spara</button></div></form>
 <form method="post" action="/admin/spoolman/synka" class="mt">{h}<button class="btn ghost small" type="submit">Synka med Spoolman nu</button></form>{st_html}</section>"""
+
+
+# ---------- materialguide ----------
+def material_card(info):
+    sup = ', '.join(info['support']) or '—'
+    return (f'<dl class="material"><dt>Munstycke</dt><dd>{info["nozzle"][0]}–{info["nozzle"][1]} °C'
+            f'{" · <b>härdat munstycke krävs</b>" if info["hardened"] else ""}</dd>'
+            f'<dt>Bädd</dt><dd>{info["bed"][0]}–{info["bed"][1]} °C</dd><dt>AMS</dt><dd>{e(info["ams"])}</dd>'
+            f'<dt>Kammare</dt><dd>{e(info["enclosure"])}</dd><dt>Torka</dt><dd>{info["dry"][0]} °C i {info["dry"][1]} h · '
+            f'öppnad spole bör torkas efter ca {info["open_days"]} dagar</dd><dt>Stöd</dt><dd>{e(sup)}</dd></dl>'
+            + (f'<p class="sub" style="margin:6px 0 0">{e(info["note"])}</p>' if info['note'] else ''))
+
+
+def materials_page(user, csrf, infos):
+    cards = ''.join(f'<section class="card" id="{e(re.sub(r"[^a-z0-9]+", "-", t.lower()))}"><h2>{e(t)}</h2>{material_card(i)}</section>'
+                    for t, i in infos.items())
+    body = (f'<h1>Materialguide</h1><p class="lead">Riktvärden per filamenttyp. Bambu Studios filamentprofil för din skrivare gäller i första hand.</p>'
+            f'{cards}')
+    return layout('Materialguide', body, user, csrf, 'katalog')
+
+
+# ---------- spolar ----------
+def spools_page(user, csrf, rows, archived, names, tares, msg_kind='', msg=''):
+    h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
+    by_type = {}
+    for k in sorted(names, key=lambda k: (k.split('|')[0], names[k])):
+        by_type.setdefault(k.split('|')[0], []).append(k)
+    opts = '<option value="">Annat märke (skriv namn nedan)</option>' + ''.join(
+        f'<optgroup label="{e(t)}">' + ''.join(f'<option value="{e(k)}">{e(t)} · {e(names[k])}</option>' for k in ks) + '</optgroup>'
+        for t, ks in by_type.items())
+    tare_opts = ''.join(f'<option value="{k}">{e(n)} (ca {g} g)</option>' for k, n, g in tares) + '<option value="egen">Egen tomvikt…</option>'
+    dry_list = [s for s, d in rows if d and d[0]]
+    cards = ''
+    for s, d in rows:
+        pct = max(0, min(100, 100 * s['remaining_g'] / (s['net_g'] or 1000)))
+        sw = f'<span class="color-dot big" style="background:{e(s["color"])}"></span>' if s['color'] and re.fullmatch(r'#[0-9A-Fa-f]{6}', s['color']) else ''
+        dry = ''
+        if d:
+            dry = (f'<span class="badge warn">Bör torkas ({d[1]} dagar sedan {"torkning" if s["dried"] else "öppning"})</span>' if d[0]
+                   else f'<span class="badge ok">Torr ({d[1]} av {d[2]} dagar)</span>')
+        cards += f"""<section class="card spool" id="s{s['id']}"><div class="row" style="justify-content:space-between;align-items:center">
+<h2 style="margin:0">{sw} {e(s['name'])}</h2><strong>{_num(s['remaining_g'], 0)} g</strong></div>
+<div class="progress mt" aria-label="Kvar"><span style="width:{pct:.0f}%"></span></div>
+<p class="sub" style="margin:8px 0 0">{e(s['material'] or '')}{' · ' + e(s['location']) if s['location'] else ''}
+{' · öppnad ' + e(s['opened']) if s['opened'] else ' · oöppnad'}{' · torkad ' + e(s['dried']) if s['dried'] else ''} {dry}</p>
+<div class="row mt no-print">
+<form method="post" action="/spolar/{s['id']}/vag" class="row" style="gap:6px">{h}<input name="gross" type="text" inputmode="decimal" placeholder="Väger (g)" aria-label="Vad spolen väger nu" style="width:120px;padding:8px"><button class="btn ghost small" type="submit">Väg</button></form>
+<form method="post" action="/spolar/{s['id']}/torkad">{h}<button class="btn ghost small" type="submit">Torkad i dag</button></form>
+{'' if s['opened'] else f'<form method="post" action="/spolar/{s["id"]}/oppnad">{h}<button class="btn ghost small" type="submit">Öppnad i dag</button></form>'}
+<form method="post" action="/spolar/{s['id']}/arkivera">{h}<button class="btn ghost small" type="submit">Slut / arkivera</button></form></div>
+<details class="mt"><summary>Ändra</summary><form method="post" action="/spolar/{s['id']}/andra" class="mt">{h}<div class="row">
+<div class="field"><label>Plats</label><input name="location" type="text" maxlength="60" value="{e(s['location'] or '')}" placeholder="t.ex. Torrbox 2"></div>
+<div class="field" style="max-width:150px"><label>Öppnad</label><input name="opened" type="date" value="{e(s['opened'] or '')}"></div>
+<div class="field" style="max-width:150px"><label>Torkad</label><input name="dried" type="date" value="{e(s['dried'] or '')}"></div>
+<div class="field" style="max-width:120px"><label>Gram kvar</label><input name="remaining_g" type="text" inputmode="decimal" value="{_num(s['remaining_g'], 0)}"></div>
+<div class="field" style="max-width:120px"><label>Tomvikt (g)</label><input name="tare_g" type="text" inputmode="numeric" value="{s['tare_g']}"></div></div>
+<div class="field mt"><label>Anteckning</label><input name="note" type="text" maxlength="300" value="{e(s['note'] or '')}"></div>
+<button class="btn ghost small mt" type="submit">Spara</button></form></details></section>"""
+    arch = ''.join(f'<li>{e(s["name"])} <form method="post" action="/spolar/{s["id"]}/ateraktivera" style="display:inline">{h}'
+                   f'<button class="btn ghost small" type="submit">Återaktivera</button></form> <form method="post" action="/spolar/{s["id"]}/ta-bort" style="display:inline">{h}'
+                   f'<button class="btn danger small" type="submit">Ta bort</button></form></li>' for s in archived)
+    body = f"""<h1>Spolar</h1><p class="lead">Dina fysiska spolar – även andra märken och spolar som inte syns i Bambu-biblioteket.
+Väg en spole på köksvågen så räknas gram kvar ut (minus spolens tomvikt). Utskrifter i loggen drar av från rätt spole.</p>
+{message(msg_kind, e(msg))}{message('warn', f'{len(dry_list)} öppnade {"spole bör" if len(dry_list) == 1 else "spolar bör"} torkas: ' + ', '.join(e(s['name']) for s in dry_list) + '. Se <a href="/material">materialguiden</a> för temperatur och tid.') if dry_list else ''}
+{cards or '<p class="muted">Inga spolar tillagda än.</p>'}
+<section class="card"><h2>Lägg till spole</h2><form method="post" action="/spolar/ny">{h}<div class="row">
+<div class="field"><label for="sk">Färg ur katalogen</label><select id="sk" name="key">{opts}</select></div>
+<div class="field" style="max-width:90px"><label for="sc">Antal</label><input id="sc" name="count" type="text" inputmode="numeric" value="1"></div></div>
+<div class="row mt"><div class="field"><label for="sn">Namn (andra märken)</label><input id="sn" name="name" type="text" maxlength="80" placeholder="t.ex. Polymaker PolyTerra Charcoal"></div>
+<div class="field" style="max-width:150px"><label for="sm">Material</label><input id="sm" name="material" type="text" maxlength="30" placeholder="PLA, PETG…"></div>
+<div class="field" style="max-width:120px"><label for="scol">Färg</label><input id="scol" name="color" type="color" value="#888888"></div></div>
+<div class="row mt"><div class="field" style="max-width:130px"><label for="snet">Vikt som ny (g)</label><input id="snet" name="net_g" type="text" inputmode="numeric" value="1000"></div>
+<div class="field"><label for="st">Spole</label><select id="st" name="tare">{tare_opts}</select></div>
+<div class="field" style="max-width:130px"><label for="stg">Egen tomvikt (g)</label><input id="stg" name="tare_g" type="text" inputmode="numeric"></div>
+<div class="field" style="max-width:150px"><label for="sg">Väger nu (g)</label><input id="sg" name="gross" type="text" inputmode="decimal" placeholder="lämna tomt om ny"></div></div>
+<div class="row mt"><div class="field" style="max-width:160px"><label for="so">Öppnad</label><input id="so" name="opened" type="date"></div>
+<div class="field" style="max-width:160px"><label for="sd">Torkad</label><input id="sd" name="dried" type="date"></div>
+<div class="field"><label for="sl">Plats</label><input id="sl" name="location" type="text" maxlength="60"></div></div>
+<button class="btn mt" type="submit">Lägg till</button></form></section>
+{f'<section class="card"><details><summary>Arkiverade spolar ({len(archived)})</summary><ul style="line-height:2.2">{arch}</ul></details></section>' if archived else ''}"""
+    return layout('Spolar', body, user, csrf, 'spolar')

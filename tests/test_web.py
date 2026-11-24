@@ -197,6 +197,40 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/admin'); t17=csrf(b); ok('Home Assistant' in b and 'Spoolman' in b,'integrationer på adminsidan')
         s,h,b=req(a,'/admin/spoolman',{'csrf':t17,'url':'http://8.8.8.8:7912','user_id':'1'}); ok(s==400,'Spoolman utanför lokala nätet nekas')
         s,h,b=req(a,'/admin/homeassistant',{'csrf':t17,'host':'bad host!','port':'1883'}); ok(s==400,'ogiltig MQTT-adress nekas')
+        # spolar, materialguide, rabatter och låst butik
+        s,h,b=req(a,'/spolar'); t20=csrf(b); ok(s==200 and 'Lägg till spole' in b,'spolsidan visas')
+        s,h,b=req(a,'/spolar/ny',{'csrf':t20,'key':'PLA Basic|10101','count':'2','tare':'bambu','gross':'1050','opened':'2026-01-01'}); ok(s==200 and '2 spolar tillagda' in b and '800 g' in b,'lägg till och väg spolar')
+        sid=re.search(r'id="s(\d+)"',b).group(1)
+        s,h,b=req(a,f'/spolar/{sid}/vag',{'csrf':t20,'gross':'650'}); ok('400 g kvar' in b,'väg spole')
+        s,h,b=req(a,'/spolar'); ok('Bör torkas' in b,'torkpåminnelse för gammal öppnad spole')
+        s,h,b=req(a,f'/spolar/{sid}/torkad',{'csrf':t20}); ok(s==303,'markera torkad')
+        s,h,b=req(a,'/spolar/ny',{'csrf':t20,'key':'finns|inte'}); ok(s==400,'okänd färg nekas')
+        s,h,b=req(a,'/material'); ok(s==200 and 'PETG-CF' in b and 'härdat munstycke krävs' in b,'materialguiden visas')
+        s,h,b=req(a,'/api/materials?type=PLA%20Basic'); ok(s==200 and json.loads(b)['base']=='PLA','material-API')
+        s,h,b=req(a,'/inkopslista'); t21=csrf(b); ok('Rabattkoder och medlemspriser' in b and 'name="shop"' in b,'rabatter och butiksval i inköpslistan')
+        s,h,b=req(a,'/inkopslista/rabatter',{'csrf':t21,'d_3DJake_Sverige':'10'}); ok(s==200 and 'Rabatterna är sparade' in b,'spara rabatt')
+        s,h,b=req(a,'/inkopslista/rabatter',{'csrf':t21,'d_3DJake_Sverige':'150'}); ok(s==400,'orimlig rabatt nekas')
+        # integritet
+        s,h,b=req(a,'/onskelista'); t22=csrf(b)
+        s,h,b=req(a,'/onskelista/avisering',{'csrf':t22,'target':'kort','do':'spara'}); ok(s==400 and 'svårgissat' in b,'kort publikt ntfy-ämne nekas')
+        s,h,b=req(a,'/onskelista/avisering',{'csrf':t22,'do':'generera'}); topic=re.search(r'ntfy.sh/(filament-[0-9a-f]{12})',b); ok(s==200 and topic,'generera ntfy-ämne')
+        s,h,b=req(a,'/konto/export.json'); ok('"notify"' not in b and topic and topic.group(1) not in b,'ntfy-ämnet exporteras inte')
+        s,h,b=req(a,'/admin'); t23=csrf(b)
+        uid_lisa=sqlite3.connect(D+'/katalog.db').execute("select id from users where username='lisa'").fetchone()
+        if uid_lisa:
+            s,h,b=req(a,'/admin/spoolman',{'csrf':t23,'url':'http://127.0.0.1:7912','user_id':str(uid_lisa[0])}); ok(s==400 and 'samtyckt' in b,'andras data kräver samtycke')
+        s,h,b=req(a,'/admin/homeassistant',{'csrf':t23,'host':'8.8.8.8','port':'1883'}); ok(s==400 and 'lokala nätet' in b,'publik MQTT-broker nekas')
+        s,h,b=req(a,'/skrivare'); t24=csrf(b)
+        s,h,b=req(a,'/skrivare/ny',{'csrf':t24,'name':'Hemlig','serial':'XYZ123456','host':'192.168.77.10','code':'12345678'})
+        s,h,b=req(a,'/api/printers'); ok('192.168.77.10' not in b and 'XYZ123456' not in b,'skrivarens IP och serienummer syns inte i API:t')
+        pid2=json.loads(b)['printers'][0]['id']
+        s,h,b=req(a,'/skrivare'); ok('Underhåll' in b and 'data-cam' in b,'underhåll och kamera på skrivarkortet')
+        s,h,b=req(a,f'/skrivare/{pid2}/underhall/platta',{'csrf':t24}); ok(s==303,'markera underhåll gjort')
+        s,h,b=req(a,f'/skrivare/{pid2}/bild.jpg'); ok(s==404,'ingen kamerabild när skrivaren inte svarar')
+        s,h,b=req(a,f'/skrivare/{pid2}/ta-bort',{'csrf':t24})
+        import socket as _s
+        c=_s.create_connection(('127.0.0.1',self.port)); c.sendall(b'GET / HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n'); raw=c.recv(4096).decode('latin-1'); c.close()
+        ok('Python' not in raw and 'Error code explanation' not in raw and 'BaseHTTP' not in raw,'felsidor avslöjar inte programvaran: %s'%raw[:200])
         # app och offline
         s,h,b=req(a,'/manifest.webmanifest'); ok(s==200 and json.loads(b)['lang']=='sv','manifest serveras')
         s,h,b=req(a,'/sw.js'); ok(s==200 and 'caches' in b,'service worker serveras')
@@ -207,7 +241,7 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/inkopslista/budget',{'csrf':t6,'budget':'abc','do':'spara'}); ok(s==400,'ogiltig budget nekas')
         s,h,b=req(a,'/inkopslista/dela',{'csrf':t6}); link=re.search(r'value="(https?://[^"]+/delad/[^"]+)"',b); ok(s==200 and link,'skapa delningslänk')
         anon,_=client(); path=urllib.parse.urlsplit(link.group(1)).path
-        s,h,b=req(anon,path); ok(s==200 and 'Delad av' in b and 'csrf' not in b,'delad lista visas utan inloggning')
+        s,h,b=req(anon,path); ok(s==200 and 'Delad inköpslista' in b and 'csrf' not in b and 'agare' not in b,'delad lista visas utan inloggning och utan namn')
         s,h,b=req(a,'/inkopslista/dela',{'csrf':t6}); s,h,b=req(anon,path); ok(s==404,'gammal länk slutar gälla när en ny skapas')
         s,h,b=req(anon,'/delad/'+'x'*43); ok(s==404,'påhittad länk ger 404')
         # säkerhetskopia
@@ -245,7 +279,7 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,f'/admin/anvandare/{uid}/roll',{'csrf':t}); ok('administratör' in b,'admin gör lisa till admin')
         s,h,b=req(a,'/logout',{'csrf':'fel'},headers={'Origin':'https://evil.example'}); ok(s==303 and 'Set-Cookie' not in h,'utloggning från annan sajt ignoreras')
         s,h,b=req(a,'/data.json'); ok(s==200,'fortfarande inloggad efter falsk utloggning')
-        s,h,b=req(a,'/logout',{'csrf':t}); ok(s==303,'logga ut')
+        s,h,b=req(a,'/logout',{'csrf':t}); ok(s==303 and 'storage' in h.get('Clear-Site-Data',''),'logga ut och töm webbläsarens lagring')
         s,h,b=req(a,'/data.json'); ok(s==303,'session ogiltig efter utloggning')
         db=sqlite3.connect(D+'/katalog.db'); ok(all(len(r[0])==64 for r in db.execute('select id from sessions')),'endast token-hash lagras')
         ok(db.execute("select pw_hash from users").fetchone()[0].startswith('scrypt$32768'),'scrypt-hash')
