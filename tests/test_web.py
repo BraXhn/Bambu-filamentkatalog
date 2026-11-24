@@ -109,7 +109,7 @@ class WebFlow(unittest.TestCase):
         # prisbevakning på önskelistan
         s,h,b=req(a,'/onskelista'); t8=csrf(b); ok(s==200 and 'Bevakning' in b and 'ntfy' in b,'önskelistesidan visas')
         s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'100000','discount':''}); ok(s==303,'spara målpris')
-        s,h,b=req(a,'/onskelista'); ok('Ditt pris är nått' in b,'träff visas när målpriset nås')
+        s,h,b=req(a,'/onskelista'); ok('Målpriset är nått' in b,'träff visas när målpriset nås')
         s,h,b=req(a,'/api/wish'); ok(json.loads(b)['hits']==['PLA Basic|10101'],'träffen finns i api/wish')
         s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10101','target':'abc'}); ok(s==400,'ogiltigt målpris nekas')
         s,h,b=req(a,'/onskelista/bevaka',{'csrf':t8,'key':'PLA Basic|10100','target':'200'}); ok(s==400,'bevakning kräver att färgen är på önskelistan')

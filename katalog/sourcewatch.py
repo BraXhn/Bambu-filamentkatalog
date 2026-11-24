@@ -25,7 +25,7 @@ def check(log=print):
     lines = [f'{lbl} har misslyckats {failing[lbl][0]} körningar i rad: {failing[lbl][1] or "okänt fel"}' for lbl in new]
     lines += [f'{lbl} fungerar igen.' for lbl in fixed]
     if new:
-        lines.append('Tidigare priser visas tills vidare. Se Administration → Prisuppdatering.')
+        lines.append('Tidigare priser visas tills vidare. Se Administration, Prisuppdatering.')
     title = 'Prishämtningen har problem' if new else 'Prishämtningen fungerar igen'
     log('[priser] ' + ' '.join(lines))
     click = config.PUBLIC_URL + '/admin#priser' if config.PUBLIC_URL else None
