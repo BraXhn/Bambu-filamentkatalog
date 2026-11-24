@@ -192,7 +192,7 @@ class WebFlow(unittest.TestCase):
         s,h,b=req(a,'/api/import',json.dumps(exp).encode(),'PUT',J); ok(s==200 and 'imported' in json.loads(b),'importera JSON: %s'%b[:200])
         s,h,b=req(a,'/api/import',b'{"format":"x"}','PUT',J); ok(s==400,'fel format nekas')
         # samköp och integrationer
-        s,h,b=req(a,'/samkop'); t16=csrf(b); ok(s==200 and 'Vilka är med' in b,'samköpssidan visas')
+        s,h,b=req(a,'/samkop'); t16=csrf(b); ok(s==200 and 'Deltagare' in b,'samköpssidan visas')
         s,h,b=req(a,'/samkop/rakna',{'csrf':t16}); ok(s==200 and 'Fördelning' in b,'räkna ut samköp')
         s,h,b=req(a,'/admin'); t17=csrf(b); ok('Home Assistant' in b and 'Spoolman' in b,'integrationer på adminsidan')
         s,h,b=req(a,'/admin/spoolman',{'csrf':t17,'url':'http://8.8.8.8:7912','user_id':'1'}); ok(s==400,'Spoolman utanför lokala nätet nekas')
