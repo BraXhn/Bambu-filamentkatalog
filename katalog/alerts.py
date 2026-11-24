@@ -151,9 +151,11 @@ def notify_all(offers, names, log=print):
         try:
             alerts = db.get_alerts(uid)
             target = db.get_pref(uid, 'notify')
+            from . import cart
+            user_offers = cart.apply_discounts(offers, cart.user_discounts(uid))
             fresh = []
             for key, a in alerts.items():
-                info = best(key, offers)
+                info = best(key, user_offers)
                 if not is_hit(a, info):
                     if a['notified']:
                         db.set_alert_notified(uid, key, None)   # nästa träff aviseras igen

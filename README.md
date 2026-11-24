@@ -29,10 +29,20 @@ Färgkatalog och prisjämförelse för Bambu Lab-filament, med inloggning och an
 - **Nya färger:** katalogen bevakar Bambu Studios färgtabell och märker nya färger *Nytt* i 60 dagar. Filtret *Nytt* visar även färger som Bambu Lab har men katalogen inte har än. Avisering via ntfy ställs in på *Önskelista*.
 - **Bästa tid att köpa:** det lägsta priset per färg sparas varje dag (cirka två år). Prisdialogen och önskelistan visar *Brukar bli billigare i december* när historiken visar ett mönster, när priset är bland årets lägsta, och kända reaperioder (Black Friday, mellandagsrean).
 - **Samköp:** lägg ihop inköpslistor med andra användare (som tillåtit det) så att fri frakt och mängdrabatter nås tillsammans. Varje person ser vad hen betalar och vad det hade kostat att köpa själv.
+- **Integritet:** delningslänken visar inte vem som delar, utloggning tömmer webbläsarens lagring och offline-cache, skrivarnas IP-adresser och serienummer skickas aldrig ut via API:t, publika ntfy-ämnen måste vara långa och slumpade (knappen *Generera ämne*) och sajtens adress skickas inte till ntfy.sh. Andra användares data kan bara skickas till Home Assistant eller Spoolman om de själva tillåtit det under *Mitt konto*, och brokern/Spoolman måste ligga i det lokala nätet.
 - **Home Assistant:** sensorer via MQTT med automatisk upptäckt (elpris nu, skrivarstatus och elkostnad, filament kvar per färg, antal som snart tar slut) och händelser på ämnet `katalog/event` (målpris nått, nya färger). Ställs in under *Administration*.
 - **Genvägar och röstassistenter:** personliga API-nycklar under *Mitt konto* ger svar som Siri/Google kan läsa upp: `/api/v1/filament?q=svart pla`, `/api/v1/elpris`, `/api/v1/skrivare`, `/api/v1/sammanfattning` (lägg till `?format=json` för JSON).
 - **Export och import:** under *Mitt konto* exporteras all din data som JSON (för flytt) eller CSV (för Excel), och en JSON-export kan importeras (lägger till, tar inte bort).
 - **Spoolman:** hämta spolar från din Spoolman-server och visa dem som *Jag har* med gram kvar, och skicka valfritt Bambu-bibliotekets spolar till Spoolman. Ställs in under *Administration* (Spoolman måste ligga i det lokala nätet).
+- **Spolar:** registrera dina fysiska spolar – även andra märken och spolar utan RFID – med vikt, öppnad- och torkad-datum och plats. Väg en spole på köksvågen så räknas gram kvar ut (minus spolens tomvikt). Utskrifter i loggen drar av gram från rätt spole, och spolarna räknas in i *Jag har*, prognosen och kostnadsräknarens varning.
+- **Torkpåminnelse:** öppnade spolar märks *Bör torkas* när de legat längre än materialet tål (t.ex. PA 3 dagar, PETG 30 dagar, PLA 90 dagar), med temperatur och tid. AMS-fukten visas på skrivarkortet med varning över 40 %.
+- **Materialguide:** temperaturer, härdat munstycke, AMS, kammare, torkning och stödmaterial per filamenttyp – i prisdialogen och på sidan */material*. Riktvärden; Bambu Studios profil gäller i första hand.
+- **Underhållsplan:** drifttimmar per skrivare från utskriftsloggen, med påminnelser om byggplatta, axlar, Z-axel, remmar, munstycke, AMS-torkmedel och kolfilter. Tryck *Gjort* när det är utfört.
+- **Avisering när en utskrift är klar eller misslyckas:** via ntfy (slås på under *Skrivare*) och som händelse till Home Assistant.
+- **Kamerabild:** A1/P1 som lagts till lokalt (IP och åtkomstkod) visar en stillbild från kameran som uppdateras var 10:e sekund. X1/H2 strömmar video (RTSP) och stöds inte.
+- **Rabattkoder och medlemspriser:** ange rabatt i procent per butik under *Inköpslista*; den räknas in i inköpslistan, prisbevakningen, kostnadsräknaren och projekten.
+- **Lås butik per rad:** välj *Bara <butik>* på en rad i inköpslistan, så fördelas resten runt den.
+- **Veckosammanfattning:** varje söndag kväll via ntfy – målpriser, snart slut, torkning, underhåll, veckans utskrifter och nya färger (slås på under *Önskelista*).
 - **Mörkt läge:** följer telefonens eller datorns inställning, på alla sidor.
 - **Billigast och erbjudanden:** sortera på lägsta aktuella pris eller största rabatt, och filtrera fram aktuella erbjudanden med rabatt i procent mot ordinarie pris.
 - **Användare:** varje användare har sina egna ”Jag har detta filament”-markeringar, sparade på kontot och synliga på alla enheter.
@@ -185,6 +195,7 @@ Därefter hämtas spolarna i filamentbiblioteket, alltså det du ser under *Fila
 | `BAMBU_SYNC_HOURS` | `6` | Hur ofta kopplade Bambu Lab-konton synkas (0 = bara manuellt) |
 | `BACKUP_TIME` | `03:30` | När den automatiska säkerhetskopian görs varje natt (tom = av). Sparas i `/data/backups`. |
 | `BACKUP_KEEP` | `7` | Hur många automatiska säkerhetskopior som sparas |
+| `TRADERA_QUERIES` | `bambu lab filament;bambu lab refill;bambu lab pla` | Sökningar på Tradera (semikolonseparerat) |
 | `NOTIFY_HOSTS` | `ntfy.sh` | ntfy-servrar som prisbevakningens aviseringar får skickas till (kommaseparerat, tomt = inga aviseringar). Lägg till din egen ntfy-server här. |
 | `NOTIFY_DEFAULT_HOST` | `ntfy.sh` | Server som används när användaren bara anger ett ämnesnamn |
 | `PUBLIC_URL` | – | Katalogens adress utifrån, t.ex. `https://filament.example.se`. Aviseringar länkar då till önskelistan. |
