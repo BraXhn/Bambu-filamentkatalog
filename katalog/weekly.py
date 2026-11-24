@@ -60,7 +60,7 @@ def run(now_dt, log=print):
     sent = 0
     for u in db.list_users():
         target = db.get_pref(u['id'], 'notify')
-        if db.get_pref(u['id'], 'weekly') != '1' or not target:
+        if db.get_pref(u['id'], 'weekly') != '1' or not target or alerts.topic_too_short(target):
             continue
         lines = build(u['id'], names)
         if not lines:

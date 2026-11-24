@@ -145,5 +145,45 @@ class Weekly(Base):
         self.assertFalse(alerts.topic_too_short(alerts.parse_target(alerts.random_topic())))
 
 
+
+class Security(Base):
+    def test_lan_ip(self):
+        orig = printers._TEST_PLAIN
+        printers._TEST_PLAIN = False
+        try:
+            for bad in ('0.0.0.0', '0.0.0.1', '127.0.0.1', '169.254.169.254', '::', 'fe80::1', '8.8.8.8', '224.0.0.1', 'evil.example'):
+                self.assertFalse(printers.lan_ip_ok(bad), bad)
+            for good in ('192.168.1.50', '10.0.0.7', '172.16.5.4'):
+                self.assertTrue(printers.lan_ip_ok(good), good)
+        finally:
+            printers._TEST_PLAIN = orig
+
+    def test_ha_event_needs_selected_user_and_consent(self):
+        from katalog import homeassistant
+        sent = []
+        orig_client, orig_check = homeassistant._client, homeassistant.check_host
+        homeassistant.check_host = lambda h, p: None
+
+        class C:
+            def publish(self, t, m, retain=False):
+                sent.append(t)
+
+            def close(self):
+                pass
+        homeassistant._client = lambda s: C()
+        try:
+            other = db.create_user('annan', 'x')
+            db.set_setting('ha_host', '192.168.1.2')
+            db.set_setting('ha_user_id', str(self.uid))
+            homeassistant.event('utskrift', {}, uid=other)
+            homeassistant.event('utskrift', {}, uid=self.uid)            # vald men utan samtycke
+            self.assertEqual(sent, [])
+            db.set_pref(self.uid, 'integrations_ok', '1')
+            homeassistant.event('utskrift', {}, uid=self.uid)
+            self.assertEqual(sent, ['katalog/event'])
+        finally:
+            homeassistant._client, homeassistant.check_host = orig_client, orig_check
+
+
 if __name__ == '__main__':
     unittest.main()

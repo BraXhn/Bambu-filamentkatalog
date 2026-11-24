@@ -110,6 +110,8 @@ class PrintersRoutes:
             return self.get_printers('ok', f'{name or serial} är tillagd. Statusen visas när skrivaren svarar.')
         if path == '/skrivare/aviseringar':
             on = f.get('on') == '1'
+            if on and alerts.topic_too_short(db.get_pref(uid, 'notify') or 'https://x/'):
+                return self.get_printers('err', 'Ditt ntfy-ämne är för kort för publika ntfy.sh. Generera ett nytt under Önskelista först.', 400)
             db.set_pref(uid, 'notify_prints', '1' if on else None)
             return self.get_printers('ok', 'Du aviseras när en utskrift är klar eller misslyckas.' if on else 'Aviseringar om utskrifter är avstängda.')
         m = re.fullmatch(r'/skrivare/(\d+)/underhall/(\w+)', path)
@@ -128,6 +130,10 @@ class PrintersRoutes:
         row = db.get_printer(uid, pid)
         mode = f.get('mode') if f.get('mode') in ('cloud', 'lan') else row['mode']
         host = f.get('host', '').strip() or row['host']
+        if host and not printers.lan_ip_ok(host):
+            if mode == 'lan' or f.get('host', '').strip():
+                return self.get_printers('err', 'Bara IPv4-adresser i det lokala nätet tillåts (t.ex. 192.168.1.50).', 400)
+            host = None
         code = f.get('code', '').strip() or row['access_code']
         if mode == 'lan':
             err = self._check_lan(row['serial'], host, code)
@@ -144,12 +150,11 @@ class PrintersRoutes:
         if not re.fullmatch(r'[A-Z0-9]{6,32}', serial):
             return 'Serienumret ska bestå av bokstäver och siffror (finns på skrivarens skärm och i Bambu Handy).'
         try:
-            ip = ipaddress.ip_address(host)
+            ipaddress.ip_address(host)
         except ValueError:
             return 'Ange skrivarens IP-adress i det lokala nätet, t.ex. 192.168.1.50.'
-        if not (ip.is_private or (os.environ.get('KATALOG_MQTT_TEST_PLAIN') == '1' and ip.is_loopback)) or ip.is_loopback and \
-                os.environ.get('KATALOG_MQTT_TEST_PLAIN') != '1':
-            return 'Bara adresser i det lokala nätet tillåts.'
+        if not printers.lan_ip_ok(host):
+            return 'Bara IPv4-adresser i det lokala nätet tillåts (t.ex. 192.168.1.50).'
         if not re.fullmatch(r'[A-Za-z0-9]{6,16}', code):
             return 'Åtkomstkoden (8 tecken) finns i skrivarens nätverksinställningar.'
         return None
