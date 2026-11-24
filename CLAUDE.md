@@ -76,6 +76,12 @@ Erbjudandeformat: `key` (`"<typ>|<färgkod>"`), `shop`, `title`, `url`, `price` 
 Hellre hoppa över en vara än matcha fel färg. En källa som fallerar eller plötsligt ger 0 behåller sina
 tidigare priser. `apply_history()` räknar ordinarie pris (butikens listpris, annars 30-dagarsmedian) och rabatt.
 
+Undersökta butiker som inte är källor (probe, november 2026): Webhallen (API:t
+`/api/productdiscovery/search/<sökord>` går att läsa, men 0 träffar på "bambu lab"; filament från PrimaValue/Flashforge),
+Kjell & Company (märkessidan Bambu Lab har bara skrivare och reservdelar, filamentkategorin bara Addnorth/Copymaster3D),
+NetOnNet (inget Bambu-filament). Inet, Proshop, Elgiganten och Dustin svarar med bot-skydd (Cloudflare-/Vercel-utmaning
+eller 403) och Komplett svarar inte från GitHubs servrar – de kringgås inte.
+
 ## Kommandon
 
 ```bash

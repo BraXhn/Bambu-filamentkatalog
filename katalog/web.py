@@ -444,6 +444,9 @@ class Handler(AccountRoutes, AdminRoutes, ApiRoutes, CostRoutes, PrintersRoutes,
                 return self.get_project(int(m.group(1)), csv_export=bool(m.group(2)))
             if path == '/skrivare/kort':
                 return self.get_printer_cards()
+            m = re.fullmatch(r'/skrivare/(\d+)/bild\.jpg', path)
+            if m:
+                return self.get_printer_image(int(m.group(1)))
             m = re.fullmatch(r'/kvitto/(\d+)', path)
             if m:
                 return self.get_receipt(int(m.group(1)))

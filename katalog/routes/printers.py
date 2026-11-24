@@ -38,15 +38,36 @@ class PrintersRoutes:
                 iv = []
         return printers.status(uid, matcher, iv)
 
+    def _printer_extras(self, uid):
+        maint, camera = {}, set()
+        for row in db.list_printers(uid):
+            maint[row['id']] = printers.maintenance(uid, row)
+            if row['mode'] == 'lan' and not (row['model'] or '').upper().startswith(('X1', 'H2')):
+                camera.add(row['id'])
+        return maint, camera
+
     def get_printers(self, kind='', msg='', code=200):
         u = self.user()
         link = db.get_bambu(u['id'])
+        maint, camera = self._printer_extras(u['id'])
         self.send(code, pages.printers_page(u, self.session()['csrf'], self._printer_status(u['id']), _catalog_names(),
-                                            bool(link and link['token']), kind, msg))
+                                            bool(link and link['token']), kind, msg, maint=maint, camera=camera,
+                                            notify_prints=db.get_pref(u['id'], 'notify_prints') == '1',
+                                            has_notify=bool(db.get_pref(u['id'], 'notify'))))
 
     def get_printer_cards(self):
         u = self.user()
-        self.send(200, pages.printer_cards(self._printer_status(u['id']), _catalog_names(), self.session()['csrf']), cache='no-store')
+        maint, camera = self._printer_extras(u['id'])
+        self.send(200, pages.printer_cards(self._printer_status(u['id']), _catalog_names(), self.session()['csrf'], maint, camera),
+                  cache='no-store')
+
+    def get_printer_image(self, pid):
+        u = self.user()
+        row = db.get_printer(u['id'], pid)
+        img = printers.snapshot(row) if row else None
+        if not img:
+            return self.send(404, b'', 'text/plain; charset=utf-8')
+        self.send(200, img, 'image/jpeg', cache='private, no-store')
 
     def api_printers(self):
         u = self.api_user()
@@ -87,6 +108,15 @@ class PrintersRoutes:
             p = next(p for p in db.list_printers(uid) if p['serial'] == serial)
             printers.start(p['id'])
             return self.get_printers('ok', f'{name or serial} är tillagd. Statusen visas när skrivaren svarar.')
+        if path == '/skrivare/aviseringar':
+            on = f.get('on') == '1'
+            db.set_pref(uid, 'notify_prints', '1' if on else None)
+            return self.get_printers('ok', 'Du aviseras när en utskrift är klar eller misslyckas.' if on else 'Aviseringar om utskrifter är avstängda.')
+        m = re.fullmatch(r'/skrivare/(\d+)/underhall/(\w+)', path)
+        if m and db.get_printer(uid, int(m.group(1))) and m.group(2) in {t[0] for t in printers.MAINTENANCE}:
+            row = db.get_printer(uid, int(m.group(1)))
+            db.set_maintenance_done(row['id'], m.group(2), printers.print_hours(uid, row))
+            return self.redirect('/skrivare#p' + m.group(1))
         m = re.fullmatch(r'/skrivare/(\d+)/(andra|ta-bort)', path)
         if not m or not db.get_printer(uid, int(m.group(1))):
             return self.not_found()

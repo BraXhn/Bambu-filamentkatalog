@@ -101,7 +101,7 @@ BAMBU_BULK_TIERS = _tiers(os.environ.get('BAMBU_BULK_TIERS', '4:18.99/15.99,6:16
 # Prishämtning
 PRICE_SOURCES = [s.strip() for s in os.environ.get('PRICE_SOURCES', '3djake,3dprima,tradera,bambulab,3dverkstan,3dexperten').split(',') if s.strip()]
 HTTP_DELAY = float(os.environ.get('PRICE_HTTP_DELAY', '1.2'))   # sekunder mellan anrop per sajt
-TRADERA_QUERIES = [q.strip() for q in os.environ.get('TRADERA_QUERIES', 'bambu lab filament').split(';') if q.strip()]
+TRADERA_QUERIES = [q.strip() for q in os.environ.get('TRADERA_QUERIES', 'bambu lab filament;bambu lab refill;bambu lab pla').split(';') if q.strip()]
 TRADERA_MAX_PAGES = _int('TRADERA_MAX_PAGES', 8)
 JAKE_MAX_PAGES = _int('JAKE_MAX_PAGES', 400)
 USER_AGENT = os.environ.get(
