@@ -110,9 +110,11 @@ def _on_report(printer_id, row, payload):
         now_state = st['report'].get('gcode_state')
         if now_state == 'RUNNING' and before != 'RUNNING':
             st['started'] = st.get('started') if before in ('PAUSE',) else time.time()
-        if before == 'RUNNING' and now_state in ('FINISH', 'FAILED'):
+        if before in ('RUNNING', 'PAUSE') and now_state in ('FINISH', 'FAILED'):
             finished = row['user_id']
+            report_copy, started = dict(st['report']), st.get('started')
     if finished:      # utskriften är klar: hämta den till loggen om en stund (molnet behöver tid på sig)
+        threading.Thread(target=_notify_finished, args=(row, report_copy, now_state, started), daemon=True).start()
         threading.Timer(120, _import_later, args=(finished,)).start()
 
 
@@ -165,9 +167,11 @@ def status(user_id, matcher=None, intervals=None, now=None):
         state = r.get('gcode_state') or ''
         pct = _num(r.get('mc_percent'))
         left = _num(r.get('mc_remaining_time'))          # minuter
-        trays = []
+        trays, units = [], []
         ams = r.get('ams') or {}
         for unit in (ams.get('ams') or []) if isinstance(ams, dict) else []:
+            raw = _num(unit.get('humidity_raw'))
+            units.append({'name': f"AMS {int(unit.get('id', 0)) + 1}", 'humidity': raw, 'level': unit.get('humidity'), 'temp': _num(unit.get('temp'))})
             for t in unit.get('tray') or []:
                 if not isinstance(t, dict) or not t.get('tray_type'):
                     continue
@@ -201,5 +205,121 @@ def status(user_id, matcher=None, intervals=None, now=None):
                     'state': state, 'stateText': STATES.get(state, state.title() if state else 'Väntar på status'),
                     'percent': pct, 'left': left, 'job': r.get('subtask_name'),
                     'layer': r.get('layer_num'), 'layers': r.get('total_layer_num'),
-                    'nozzle': _num(r.get('nozzle_temper')), 'bed': _num(r.get('bed_temper')), 'trays': trays, 'live': live})
+                    'nozzle': _num(r.get('nozzle_temper')), 'bed': _num(r.get('bed_temper')), 'trays': trays, 'ams': units, 'live': live})
     return out
+
+
+# --- Underhåll: riktvärden, räknat i drifttimmar (från utskriftsloggen) eller dagar ---
+MAINTENANCE = [
+    ('platta', 'Rengör byggplattan med diskmedel och varmt vatten', 50, None),
+    ('axlar', 'Rengör och smörj axlar och linjärskenor', 200, 90),
+    ('zaxel', 'Smörj Z-axelns spindlar', 300, 180),
+    ('remmar', 'Kontrollera remmarnas spänning', 300, 180),
+    ('munstycke', 'Kontrollera munstycket (oftare med slipande material)', 500, None),
+    ('ams', 'Byt eller torka torkmedlet i AMS', None, 60),
+    ('kolfilter', 'Byt kolfiltret (skrivare med kammare)', None, 120),
+]
+
+
+def print_hours(user_id, row):
+    """Drifttimmar för skrivaren enligt utskriftsloggen (utskrifter vars skrivarnamn innehåller skrivarens namn)."""
+    name = (row['name'] or '').lower()
+    return sum(r['hours'] for r in db.get_prints(user_id, limit=100000) if name and name in (r['printer'] or '').lower())
+
+
+def maintenance(user_id, row, now=None):
+    now = now or time.time()
+    hours = print_hours(user_id, row)
+    done = db.maintenance_done(row['id'])
+    out = []
+    for task, text, every_h, every_days in MAINTENANCE:
+        d = done.get(task)
+        base_h = d['done_hours'] if d else 0.0
+        base_t = d['done_ts'] if d else row['created']
+        since_h = hours - base_h
+        since_d = (now - base_t) / 86400
+        frac = max(since_h / every_h if every_h else 0, since_d / every_days if every_days else 0)
+        out.append({'task': task, 'text': text, 'since_h': since_h, 'since_d': since_d, 'every_h': every_h, 'every_days': every_days,
+                    'due': frac >= 1, 'soon': 0.8 <= frac < 1, 'done': d['done_ts'] if d else None})
+    return out, hours
+
+
+# --- Avisering när en utskrift är klar eller misslyckas ---
+def _notify_finished(row, report, state, started):
+    try:
+        db.close_thread_conn()
+        if db.get_pref(row['user_id'], 'notify_prints') != '1':
+            return
+        target = db.get_pref(row['user_id'], 'notify')
+        if not target:
+            return
+        from . import alerts
+        job = report.get('subtask_name') or 'Utskriften'
+        dur = ''
+        if started:
+            mins = round((time.time() - started) / 60)
+            dur = f' efter {mins // 60} h {mins % 60:02d} min' if mins >= 60 else f' efter {mins} min'
+        if state == 'FINISH':
+            title, msg = f'{job} är klar', f'{job} är klar på {row["name"]}{dur}.'
+        else:
+            title, msg = f'{job} misslyckades', f'{job} misslyckades på {row["name"]}{dur}. Ange gärna orsaken under Utskrifter.'
+        alerts.send(target, title, msg)
+        try:
+            from . import homeassistant
+            homeassistant.event('utskrift', {'skrivare': row['name'], 'utskrift': job, 'status': 'klar' if state == 'FINISH' else 'misslyckades'})
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception as ex:  # noqa: BLE001
+        print(f'[skrivare] avisering: {ex!r}', flush=True)
+
+
+# --- Kamerabild (A1/P1 i lokalt läge: TLS på port 6000, JPEG-ramar) ---
+_snapshots = {}
+CAMERA_PORT = 6000
+
+
+def snapshot(row, max_age=5):
+    """En JPEG-bild från skrivarens kamera, eller None. Bara lokal anslutning (åtkomstkoden krävs)."""
+    import socket
+    import ssl
+    import struct
+    if row['mode'] != 'lan' or not row['host'] or not row['access_code']:
+        return None
+    model = (row['model'] or '').upper()
+    if model.startswith(('X1', 'H2')):
+        return None        # X1/H2 strömmar RTSP/H.264, inte JPEG
+    hit = _snapshots.get(row['id'])
+    if hit and time.time() - hit[0] < max_age:
+        return hit[1]
+    plain = _TEST_PLAIN and row['host'] == '127.0.0.1'
+    port = int(os.environ.get('KATALOG_CAMERA_TEST_PORT', CAMERA_PORT)) if plain else CAMERA_PORT
+    try:
+        raw = socket.create_connection((row['host'], port), timeout=6)
+        if not plain:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE      # skrivarens självsignerade certifikat i det lokala nätet
+            raw = ctx.wrap_socket(raw, server_hostname=row['host'])
+        with raw as s:
+            s.sendall(struct.pack('<IIII', 0x40, 0x3000, 0, 0) + b'bblp'.ljust(32, b'\0') + row['access_code'].encode()[:32].ljust(32, b'\0'))
+            head = b''
+            while len(head) < 16:
+                chunk = s.recv(16 - len(head))
+                if not chunk:
+                    return None
+                head += chunk
+            size = struct.unpack('<I', head[:4])[0]
+            if not 0 < size <= 2_000_000:
+                return None
+            img = b''
+            while len(img) < size:
+                chunk = s.recv(min(65536, size - len(img)))
+                if not chunk:
+                    return None
+                img += chunk
+    except (OSError, ssl.SSLError, struct.error):
+        return None
+    if not (img.startswith(b'\xff\xd8') and img.rstrip(b'\0').endswith(b'\xff\xd9')):
+        return None
+    _snapshots[row['id']] = (time.time(), img)
+    return img

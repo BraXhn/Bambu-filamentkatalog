@@ -955,7 +955,7 @@ def backups_html(csrf, backups, backup_time, keep):
 
 
 # ---------- skrivare ----------
-def printer_cards(statuses, names, csrf):
+def printer_cards(statuses, names, csrf, maint=None, camera=()):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     if not statuses:
         return '<p class="muted">Inga skrivare tillagda än.</p>'
@@ -983,10 +983,30 @@ def printer_cards(statuses, names, csrf):
             rem = f' · {t["remain"]:.0f} % kvar' if t['remain'] is not None and t['remain'] >= 0 else ''
             trays += f'<li{" class=active" if t["active"] else ""}>{sw}<span><b>{name}</b><br><span class="muted" style="font-size:12px">{e(t["slot"])}{rem}{" · används nu" if t["active"] else ""}</span></span></li>'
         mode = 'lokalt' if p['mode'] == 'lan' else 'via Bambu-molnet'
+        cam = (f'<img class="cam" src="/skrivare/{p["id"]}/bild.jpg" alt="Kamerabild från {e(p["name"])}" data-cam="{p["id"]}" loading="lazy">'
+               if p['id'] in camera else '')
+        humid = ''.join(
+            f'<span class="badge {"warn" if a["humidity"] is not None and a["humidity"] > 40 else ""}">{e(a["name"])}: '
+            + (f'{a["humidity"]:.0f} % fukt' if a['humidity'] is not None else f'fukt nivå {e(str(a["level"]))}' if a['level'] else 'fukt okänd')
+            + (' – byt torkmedel' if a['humidity'] is not None and a['humidity'] > 40 else '') + '</span> ' for a in p.get('ams') or [])
+        mt = ''
+        if maint and p['id'] in maint:
+            items, hours = maint[p['id']]
+            due = [i for i in items if i['due']]
+            rows_ = ''.join(
+                f'<li class="{"due" if i["due"] else "soon" if i["soon"] else ""}"><span>{e(i["text"])}<br><span class="muted" style="font-size:12px">'
+                + (f'{_num(i["since_h"], 0)} av {i["every_h"]} h' if i['every_h'] else '')
+                + (' · ' if i['every_h'] and i['every_days'] else '')
+                + (f'{_num(i["since_d"], 0)} av {i["every_days"]} dagar' if i['every_days'] else '')
+                + (f' · senast {fmt_time(i["done"])[:10]}' if i['done'] else '')
+                + f'</span></span><form method="post" action="/skrivare/{p["id"]}/underhall/{i["task"]}"><input type="hidden" name="csrf" value="{e(csrf)}">'
+                  f'<button class="btn ghost small" type="submit">Gjort</button></form></li>' for i in items)
+            mt = (f'<details class="mt"{" open" if due else ""}><summary>Underhåll {"– <b>" + str(len(due)) + " att göra</b>" if due else "(inget att göra)"}'
+                  f' · {_num(hours, 0)} drifttimmar enligt loggen</summary><ul class="maint">{rows_}</ul></details>')
         out += f"""<section class="card printer"><div class="row" style="justify-content:space-between;align-items:baseline">
 <h2>{e(p['name'])} <span class="muted" style="font-size:13px;font-weight:400">{e(p['model'] or '')} · {mode}</span></h2>{conn}</div>
 <p style="margin:6px 0 0"><b>{e(p['stateText'])}</b>{(' · ' + temps) if temps else ''}</p>{prog}
-{f'<ul class="ams">{trays}</ul>' if trays else ''}
+{cam}{f'<ul class="ams">{trays}</ul>' if trays else ''}{f'<p class="mt" style="margin-bottom:0">{humid}</p>' if humid else ''}{mt}
 <details class="mt no-print"><summary>Inställningar</summary><form method="post" action="/skrivare/{p['id']}/andra" class="row mt">{h}
 <div class="field" style="max-width:190px"><label>Anslutning</label><select name="mode"><option value="cloud"{' selected' if p['mode'] == 'cloud' else ''}>Bambu-molnet</option><option value="lan"{' selected' if p['mode'] == 'lan' else ''}>Lokalt (IP)</option></select></div>
 <div class="field" style="max-width:170px"><label>IP-adress</label><input name="host" type="text" value="{e(p['host'] or '')}" placeholder="192.168.1.50"></div>
@@ -997,12 +1017,16 @@ def printer_cards(statuses, names, csrf):
     return out
 
 
-def printers_page(user, csrf, statuses, names, has_bambu, msg_kind='', msg=''):
+def printers_page(user, csrf, statuses, names, has_bambu, msg_kind='', msg='', maint=None, camera=(), notify_prints=False, has_notify=False):
     h = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     cloud = (f'<form method="post" action="/skrivare/hamta" style="margin-bottom:18px">{h}<button class="btn" type="submit">Hämta skrivare från Bambu Lab-kontot</button></form>'
              if has_bambu else '<p class="sub">Koppla ditt Bambu Lab-konto under <a href="/konto">Mitt konto</a> för att hitta skrivarna automatiskt, eller lägg till en skrivare lokalt nedan.</p>')
     body = f"""<h1>Skrivare</h1><p class="lead">Status i realtid, vad som sitter i AMS och vad den pågående utskriften kostar i el.</p>
-{message(msg_kind, e(msg))}{cloud}<div id="printerCards" aria-live="polite">{printer_cards(statuses, names, csrf)}</div>
+{message(msg_kind, e(msg))}{cloud}<div id="printerCards" aria-live="polite">{printer_cards(statuses, names, csrf, maint, camera)}</div>
+<section class="card"><h2>Avisering när en utskrift är klar</h2><p class="sub">{'Du får en avisering via ntfy när en utskrift är klar eller misslyckas.' if notify_prints else 'Få en avisering via ntfy när en utskrift är klar eller misslyckas.'}
+{'' if has_notify else ' Ange först ett ntfy-ämne under <a href="/onskelista">Önskelista</a>.'}</p>
+<form method="post" action="/skrivare/aviseringar">{h}<input type="hidden" name="on" value="{'0' if notify_prints else '1'}">
+<button class="btn ghost small" type="submit"{'' if has_notify or notify_prints else ' disabled'}>{'Stäng av' if notify_prints else 'Slå på'}</button></form></section>
 <section class="card"><h2>Lägg till skrivare lokalt</h2>
 <p class="sub">Snabbast och fungerar utan Bambu-molnet. IP-adress och åtkomstkod finns på skrivarens skärm under nätverksinställningar
 (på A1/P1: <i>Inställningar → WLAN</i>). Serienumret finns under <i>Inställningar → Enhet</i>. Katalogen läser bara status och skickar inga kommandon.</p>
